@@ -1,0 +1,23 @@
+/*
+  Author(s):  Yoshito Otake, Ali Uneri
+  Created on: 2013-03-01
+*/
+
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#cmakedefine RegTools_HAS_MATLAB
+#cmakedefine RegTools_VERBOSE_MESSAGE
+#cmakedefine RegTools_ENABLE_CUDA20_CAPABILITY_FEATURES 
+#cmakedefine RegTools_GI_BACKGROUND_EDGE_CHECK 
+
+#define DEFAULT_TRANSFER_BLOCK_SIZE @RegTools_DEFAULT_TRANSFER_BLOCK_SIZE@
+#define BLOCK_SIZE_X  @RegTools_BLOCK_SIZE_X@
+#define BLOCK_SIZE_Y  @RegTools_BLOCK_SIZE_Y@
+#define BLOCK_SIZE_Z  @RegTools_BLOCK_SIZE_Z@
+#define MI_NUMBER_OF_BINS  @RegTools_MI_NUMBER_OF_BINS@
+
+#define CUDA_VERSION_MAJOR  @CUDA_VERSION_MAJOR@
+#define CUDA_VERSION_MINOR  @CUDA_VERSION_MINOR@
+
+#endif
