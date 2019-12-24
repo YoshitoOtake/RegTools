@@ -451,6 +451,7 @@ classdef Registration2D3D_IntensityBased < Registration2D3DInterface & handle
                 obj.Param.RegistrationLogs_LevelEnd = zeros(obj.NumMultiLevel,1);
             end
             obj.Param.current_iteration = 0;
+			obj.Param.current_generation = 0;
             obj.Param.record_file_id = 0;
             obj.Param.TimerID = tic;
             % multi start position setting
@@ -475,6 +476,7 @@ classdef Registration2D3D_IntensityBased < Registration2D3DInterface & handle
                 [nu, nv, nb] = size(obj.all_images{i});    % dimensions of downsampled images at this level
                 [nx, ny, nz] = size(obj.all_volumes{i});   % dimensions of downsampled volume at this level
                 if(length(obj.PopSize)<i), popSize = obj.PopSize(end); else popSize = obj.PopSize(i); end  % population size for CMA-ES optimizer
+				obj.Param.PopSize = popSize;
                 true_downsample_ratio = [size(obj.Images,1) size(obj.Images,2)]./[nu nv];  % when the downsample ratio is not a factor of image size, this can be non-integer
                 obj.Param.CurrentDownsampleRatio_Projection = true_downsample_ratio;
                 obj.SetStepSize(DS_u);
@@ -808,11 +810,13 @@ classdef Registration2D3D_IntensityBased < Registration2D3DInterface & handle
                 
                 % show current progress
                 obj.Param.display_result = true;
+				obj.Param.RecordLog = false;
                 if(obj.SerialCMAES)
                     feval(obj.ObjectiveFunctionName, zeros(1,size(start_guesses,2)), obj.regTools, obj.Param);
                 else
                     feval(obj.ObjectiveFunctionName, zeros(1,size(start_guesses,2)), 1, obj.regTools, obj.Param);
                 end
+				obj.Param.RecordLog = true;
                 obj.Param.display_result = false;
                 obj.Param.CurrentStartPose = obj.AllMultistartSolutions(obj.SuccessfulStart,:);
 

@@ -50,9 +50,11 @@ classdef Registration2D3D_IntensityBased_ObjectiveFunctionParameters < hgsetget
         similarity_measure_plan_id = int32([]);
         forwardProjection_plan_id = int32([]);
         current_iteration = 0; % number of current iteration
+		current_generation = 0;
         display_result = false;
         record_file_id = 0;
         MaxParallel = inf;
+		PopSize = 100;
         
         num_multi_start = 1;
         current_start = 1;
