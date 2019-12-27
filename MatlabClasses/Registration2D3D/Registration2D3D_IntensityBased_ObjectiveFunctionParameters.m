@@ -55,6 +55,7 @@ classdef Registration2D3D_IntensityBased_ObjectiveFunctionParameters < hgsetget
         record_file_id = 0;
         MaxParallel = inf;
 		PopSize = 100;
+		MaxGeneration = 100;
         
         num_multi_start = 1;
         current_start = 1;
@@ -99,6 +100,9 @@ classdef Registration2D3D_IntensityBased_ObjectiveFunctionParameters < hgsetget
 		
 		% penalty term weight
 		Lambda_L2_penalty = 0;
+
+		% alpha weight scheduling
+		alpha_scheduling_mode = 0;
         
         % Parameters for the multiple bodies registration
         FixedVolumesIndices = [];

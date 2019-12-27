@@ -836,8 +836,8 @@ classdef Registration2D3D_IntensityBased < Registration2D3DInterface & handle
                 % add initial guess offset and store as an intermediate result
 %                 if (strcmp(obj.ObjectiveFunctionName, 'Registration2D3D_IntensityBased.ObjectiveFunction_Multiple'))
                         numMovingVolumes = length(obj.Param.MovingVolumesIndices);
-                        for j = 1:numMovingVolumes
-                            resultOffset = (j-1)*6;
+                        for k = 1:numMovingVolumes
+                            resultOffset = (k-1)*6;
                             if(strcmp(obj.Param.OffsetMultiplicationOrder,'Post'))
                                 volume_offset_4x4 = RegTools.matTranslation(obj.Param.VolumeOffsets(:,k));
                                 initial_guess_global = RegTools.convertTransRotTo4x4(obj.Param.InitialGuess(resultOffset+(1:6))) * volume_offset_4x4;
