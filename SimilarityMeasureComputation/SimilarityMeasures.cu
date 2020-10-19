@@ -6,6 +6,7 @@
 #include <float.h>
 
 // thrust functions
+// important note: thrust is not compatible with multi-thread environment, thus not compativle with multi-GPU in this library
 #include <thrust/device_ptr.h>
 #include <thrust/device_vector.h>
 #include <thrust/transform.h>
@@ -86,7 +87,7 @@ extern "C" void computeKernelSpectrumGPU(float *h_Kernel, int dataH, int dataW, 
   cutilSafeCall( cudaMalloc(&(d_Kernel), kernelH*kernelW*sizeof(float)) );
   cutilSafeCall( cudaMalloc(&(d_PaddedKernel), fftH*fftW*sizeof(float)) );
 //  fComplex *d_KernelSpectrum = temp_spectrum+ (fftH * (fftW / 2 + 1));
-//  print_and_log("kernelH: %d, kernelW: %d, fftH: %d, fftW: %d\n", kernelH, kernelW, fftH, fftW);
+  //print_and_log("kernelH: %d, kernelW: %d, fftH: %d, fftW: %d\n", kernelH, kernelW, fftH, fftW);
   cutilSafeCall( cudaMemcpy(d_Kernel, h_Kernel, kernelH * kernelW * sizeof(float), cudaMemcpyHostToDevice) );
   cutilSafeCall( cudaMemset(d_PaddedKernel, 0, fftH * fftW * sizeof(float)) );
 
@@ -170,39 +171,72 @@ struct square_functor
   __host__ __device__ float operator()(const float &x) const { return x*x; }
 };
 
-extern "C" bool zeromean_stddivide_Images(float *d_images, float *d_temp, int image_size, int num_image_sets, cublasHandle_t cublasHandle, float *d_mean_std, float *d_OneVector, float h_NormalizationFactor, float *d_mask_weight)
+__global__ void apply_floating_mask_kernel(float *d_images, float *d_floating_mask, int size)
+{
+	const int index = blockDim.x * blockIdx.x + threadIdx.x;
+	if (index >= size) return;
+	if(d_floating_mask[index]<1e-6) d_images[index] = 0;
+}
+
+__global__ void square_functor_kernel(float *d_input, float *d_output, int size)
+{
+	const int index = blockDim.x * blockIdx.x + threadIdx.x;
+	if (index >= size) return;
+	d_output[index] = d_input[index] * d_input[index];
+}
+
+__global__ void sqrt_inverse_functor_kernel(float *d_input, float *d_output, int size)
+{
+	const int index = blockDim.x * blockIdx.x + threadIdx.x;
+	if (index >= size) return;
+	d_output[index] = 1/sqrt(d_input[index]);
+}
+
+extern "C" bool zeromean_stddivide_Images(float *d_images, float *d_temp, int image_size, int num_image_sets, cublasHandle_t cublasHandle, float *d_mean_std, float *d_OneVector, float h_NormalizationFactor, float *d_mask_weight, float *d_floating_mask)
 {
   float alpha, beta;
 
-  // (OPTIONAL) apply mask to each image (culumn). Note that mask_weight is single image set (single column vector)
+  // (OPTIONAL) apply mask to each image (column). Note that mask_weight is single image set (single column vector)
+  //print_and_log("zeromean_stddivide_Images(), pass0, d_images: %d, d_temp: %d, image_size: %d, num_image_sets: %d, cublasHandle: %d\n", d_images, d_temp, image_size, num_image_sets, cublasHandle);
   if(d_mask_weight)  
      cublasSdgmm(cublasHandle, CUBLAS_SIDE_LEFT, image_size, num_image_sets, d_images, image_size, d_mask_weight, 1, d_images, image_size);
 
   // compute mean of each image set (dim[2] images are considered as one set)
   beta = 0.0;
   cublasSgemv(cublasHandle, CUBLAS_OP_T, image_size, num_image_sets, &h_NormalizationFactor, d_images, image_size, d_OneVector, 1, &beta, d_mean_std, 1);
+  //print_and_log("zeromean_stddivide_Images(), pass1\n");
 
   // subtract mean from each image set (column-wise subtraction)
   alpha = -1.0f; beta = 1.0;
   cublasSgemm(cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N, image_size, num_image_sets, 1, &alpha, d_OneVector, image_size, d_mean_std, 1, &beta, d_images, image_size);
   // is this correct? maybe below? (d_mean_std and d_OneVector should be opposite order)
   //cublasSgemm(cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N, image_size, num_image_sets, 1, &alpha, d_mean_std, image_size, d_OneVector, 1, &beta, d_images, image_size);
+  //print_and_log("zeromean_stddivide_Images(), pass2, image_size: %d, num_image_sets: %d\n", image_size, num_image_sets);
+
+  const int b = BLOCK_SIZE_X * BLOCK_SIZE_Y * BLOCK_SIZE_Z;
+  // apply floating mask if needed (set zero for the pixels with d_floating_mask>0)
+  if(d_floating_mask)
+	apply_floating_mask_kernel << <iDivUp(image_size*num_image_sets, b), b >> > (d_images, d_floating_mask, image_size*num_image_sets);
 
   // compute std of each image set (column-wise)
-  thrust::transform(thrust::device_ptr<float>(d_images), thrust::device_ptr<float>(d_images)+image_size*num_image_sets, thrust::device_ptr<float>(d_temp), square_functor());
+  //thrust::transform(thrust::device_ptr<float>(d_images), thrust::device_ptr<float>(d_images)+image_size*num_image_sets, thrust::device_ptr<float>(d_temp), square_functor());
+  square_functor_kernel << <iDivUp(image_size*num_image_sets, b), b >> > (d_images, d_temp, image_size*num_image_sets);
+  //print_and_log("zeromean_stddivide_Images(), pass3\n");
   alpha = 1.0f; beta = 0.0;
   cublasSgemv(cublasHandle, CUBLAS_OP_T, image_size, num_image_sets, &alpha, d_temp, image_size, d_OneVector, 1, &beta, d_mean_std, 1);
-  thrust::transform(thrust::device_ptr<float>(d_mean_std), thrust::device_ptr<float>(d_mean_std)+num_image_sets, thrust::device_ptr<float>(d_mean_std), sqrt_inverse_functor());
+  //print_and_log("zeromean_stddivide_Images(), pass4\n");
+  //thrust::transform(thrust::device_ptr<float>(d_mean_std), thrust::device_ptr<float>(d_mean_std)+num_image_sets, thrust::device_ptr<float>(d_mean_std), sqrt_inverse_functor());
+  sqrt_inverse_functor_kernel << <iDivUp(num_image_sets, b), b >> > (d_mean_std, d_mean_std, num_image_sets);
 
   // devide each image set by std (column-wise division)
   cublasSdgmm(cublasHandle, CUBLAS_SIDE_RIGHT, image_size, num_image_sets, d_images, image_size, d_mean_std, 1, d_images, image_size);
 
 /*
-  float *h_temp_mean = new float[num_image_sets];
-  cutilSafeCall( cudaMemcpy(h_temp_mean, d_temp_mean, num_image_sets*sizeof(float), cudaMemcpyDeviceToHost) );
-  for(int i=0;i<num_image_sets;i++){ print_and_log("d_images[%d] mean: %f\n", i, h_temp_mean[i]); }
-  delete[] h_temp_mean;
-*/
+  float *h_mean_std = new float[num_image_sets];
+  cutilSafeCall( cudaMemcpy(h_mean_std, d_mean_std, num_image_sets*sizeof(float), cudaMemcpyDeviceToHost) );
+  for(int i=0;i<num_image_sets;i++){ print_and_log("d_images[%d] mean: %f\n", i, h_mean_std[i]); }
+  delete[] h_mean_std;
+  */
   return true;
 }
 
@@ -222,7 +256,9 @@ extern "C" bool computeMeanSquaredError(float *d_images1_multi, float *d_images2
   cublasSgemm(cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N, image_size, num_image_sets, 1, &alpha, d_images2_single, image_size, d_OneVector, 1, &beta, d_images1_multi, image_size);
 
   // square d_images1_multi
-  thrust::transform(thrust::device_ptr<float>(d_images1_multi), thrust::device_ptr<float>(d_images1_multi)+image_size*num_image_sets, thrust::device_ptr<float>(d_images1_multi), square_functor());
+  //thrust::transform(thrust::device_ptr<float>(d_images1_multi), thrust::device_ptr<float>(d_images1_multi)+image_size*num_image_sets, thrust::device_ptr<float>(d_images1_multi), square_functor());
+  const int b = BLOCK_SIZE_X * BLOCK_SIZE_Y * BLOCK_SIZE_Z;
+  square_functor_kernel << <iDivUp(image_size*num_image_sets, b), b >> > (d_images1_multi, d_images1_multi, image_size*num_image_sets);
 
   // average over each image
   alpha = 1.0f/(float)image_size; beta = 0.0;
@@ -262,6 +298,10 @@ extern "C" bool computeNormalizedCrossCorrelation_Sum(float *d_images1_multi, fl
   cublasSgemv(cublasHandle, CUBLAS_OP_T, image_size, num_image_sets, &alpha, d_output_multi, image_size, d_OneVector, 1, &beta, d_temp_NCC, 1);
 
   // copy the results back to host
+//  print_and_log("computeNormalizedCrossCorrelation_Sum(), d_temp_NCC: %d\n", d_temp_NCC);
+//  for (int i = 0; i < num_image_sets; i++) print_and_log("%f, ", h_temp_NCC[i]);
+//  print_and_log("\n");
+  //cutilSafeCall(cudaMemcpy(d_temp_NCC, h_temp_NCC, num_image_sets * sizeof(float), cudaMemcpyHostToDevice));
   cutilSafeCall( cudaMemcpy(h_temp_NCC, d_temp_NCC, num_image_sets*sizeof(float), cudaMemcpyDeviceToHost) );
   for(int i=0;i<num_image_sets;i++) NCC[i] += (double)(h_temp_NCC[i]); // float -> double conversion (result is accumulated. make sure zeroing the initial array)
 //  for(int i=0;i<num_image_sets;i++){ print_and_log("NCC[%d]: %f\n", i, NCC[i]); }
@@ -275,6 +315,13 @@ struct subtract_square_functor
     return (x-y)*(x-y);
   }
 };
+
+__global__ void subtract_square_functor_kernel(float *d_input1, float *d_input2, float *d_output, int size)
+{
+	const int index = blockDim.x * blockIdx.x + threadIdx.x;
+	if (index >= size) return;
+	d_output[index] = (d_input1[index]-d_input2[index]) * (d_input1[index] - d_input2[index]);
+}
 
 extern "C" bool computeGaussianGPUMulti(float *d_input_images, int *dim, int num_image_sets, float *d_output_mu, float *d_output_sigma_sq, float sigma
                                            , fComplex *d_kernel_spectrum, float *temp_padded, fComplex *temp_spectrum
@@ -299,8 +346,10 @@ extern "C" bool computeGaussianGPUMulti(float *d_input_images, int *dim, int num
   unPadDataClampToBorder(d_output_mu, temp_padded, fftH, fftW, dataH, dataW, kernelY, kernelX, dim[2]*num_image_sets);
 
   // compute sigma images (gaussian filter after mean subtraction and square.
-  thrust::transform( thrust::device_ptr<float>(d_input_images), thrust::device_ptr<float>(d_input_images)+total_size,
-                     thrust::device_ptr<float>(d_output_mu), thrust::device_ptr<float>(d_output_sigma_sq), subtract_square_functor() );
+//  thrust::transform( thrust::device_ptr<float>(d_input_images), thrust::device_ptr<float>(d_input_images)+total_size,
+//                     thrust::device_ptr<float>(d_output_mu), thrust::device_ptr<float>(d_output_sigma_sq), subtract_square_functor() );
+  const int b = BLOCK_SIZE_X * BLOCK_SIZE_Y * BLOCK_SIZE_Z;
+  subtract_square_functor_kernel << <iDivUp(total_size, b), b >> > (d_input_images, d_output_mu, d_output_sigma_sq, total_size);
   padDataClampToBorder( temp_padded, d_output_sigma_sq, fftH, fftW, dataH, dataW, kernelH, kernelW, kernelY, kernelX, dim[2]*num_image_sets );
   cufftSafeCall( cufftExecR2C( fftPlanManyFwd, (cufftReal *)temp_padded, (cufftComplex *)temp_spectrum ) ); // fft
   modulateAndNormalize(temp_spectrum, d_kernel_spectrum, fftH, fftW, dim[2]*num_image_sets, 1);
@@ -310,6 +359,70 @@ extern "C" bool computeGaussianGPUMulti(float *d_input_images, int *dim, int num
 //  print_and_log("computeGaussianGPUMulti(), dim: %dx%dx%d, fft size: %dx%d, kernelXY: %dx%d, kernelWH: %dx%d, spectrum_size: %d, padded_size: %d, fftPlanManyInv: %d, total_size: %d\n", 
 //                  dim[0], dim[1], dim[2], fftW, fftH, kernelX, kernelY, kernelW, kernelH, spectrum_size, padded_size, fftPlanManyInv, total_size);
   return true;
+}
+
+struct sqrt_op
+{
+	__host__ __device__
+		float operator()(const float& x) const {
+		return x < 1e-8f ? 0.0f : sqrt(x);
+	}
+};
+
+struct checked_div
+{
+	__host__ __device__
+		float operator()(const float& numerator, const float& denominator) const {
+		return abs(denominator) < 1e-8f ? 0.0f : numerator / denominator;
+	}
+};
+
+extern "C" bool computeLocalContrastNormalizationGPUMulti(float *d_input_images, int *dim, int num_image_sets, float *d_output_centered, float *d_output_std, float *d_output, float sigma
+														, fComplex *d_kernel_spectrum, float *temp_padded, fComplex *temp_spectrum
+														, cufftHandle fftPlanManyFwd, cufftHandle fftPlanManyInv)
+{
+	float *d_temp_std = d_output_std ? d_output_std : d_output;	// d_output_std is just for debugging. set to NULL if no std image output is necessary
+
+	const unsigned int kernelY = getKernelSize(sigma), kernelX = kernelY;
+	const unsigned int kernelH = 2 * kernelY + 1, kernelW = kernelH;
+	const int fftH = snapTransformSize(dim[1] + kernelH - 1), dataH = dim[1];
+	const int fftW = snapTransformSize(dim[0] + kernelW - 1), dataW = dim[0];
+	const int spectrum_size = fftH*(fftW / 2 + 1), padded_size = fftH*fftW;
+
+	const int total_size = dim[0] * dim[1] * dim[2] * num_image_sets;
+
+	// compute centered images
+	// FFT/iFFT for all images simultaneously (fftPlanMany needs to be created for exactly the same number of images)
+	// Note: the following FFT fails if input image contains NaN (even only one pixel!)
+	// compute mu images
+	padDataClampToBorder(temp_padded, d_input_images, fftH, fftW, dataH, dataW, kernelH, kernelW, kernelY, kernelX, dim[2] * num_image_sets);
+	cufftSafeCall(cufftExecR2C(fftPlanManyFwd, (cufftReal *)temp_padded, (cufftComplex *)temp_spectrum));
+	modulateAndNormalize(temp_spectrum, d_kernel_spectrum, fftH, fftW, dim[2] * num_image_sets, 1);
+	cufftSafeCall(cufftExecC2R(fftPlanManyInv, (cufftComplex *)temp_spectrum, (cufftReal *)temp_padded));
+	unPadDataClampToBorder(d_output_centered, temp_padded, fftH, fftW, dataH, dataW, kernelY, kernelX, dim[2] * num_image_sets);
+	thrust::transform(thrust::device_ptr<float>(d_input_images), thrust::device_ptr<float>(d_input_images) + total_size,
+		thrust::device_ptr<float>(d_output_centered), thrust::device_ptr<float>(d_output_centered), thrust::minus<float>());
+
+	// compute std images (gaussian filtering on squared centered images).
+	thrust::transform(thrust::device_ptr<float>(d_output_centered), thrust::device_ptr<float>(d_output_centered) + total_size,
+		thrust::device_ptr<float>(d_temp_std), thrust::square<float>());
+
+	padDataClampToBorder(temp_padded, d_temp_std, fftH, fftW, dataH, dataW, kernelH, kernelW, kernelY, kernelX, dim[2] * num_image_sets);
+	cufftSafeCall(cufftExecR2C(fftPlanManyFwd, (cufftReal *)temp_padded, (cufftComplex *)temp_spectrum)); // fft
+	modulateAndNormalize(temp_spectrum, d_kernel_spectrum, fftH, fftW, dim[2] * num_image_sets, 1);
+	cufftSafeCall(cufftExecC2R(fftPlanManyInv, (cufftComplex *)temp_spectrum, (cufftReal *)temp_padded));   // inverse fft
+	unPadDataClampToBorder(d_temp_std, temp_padded, fftH, fftW, dataH, dataW, kernelY, kernelX, dim[2] * num_image_sets);
+	thrust::transform(thrust::device_ptr<float>(d_temp_std), thrust::device_ptr<float>(d_temp_std) + total_size,
+		thrust::device_ptr<float>(d_temp_std), sqrt_op());
+	thrust::transform(thrust::device_ptr<float>(d_output_centered), thrust::device_ptr<float>(d_output_centered) + total_size,
+		thrust::device_ptr<float>(d_temp_std), thrust::device_ptr<float>(d_output), checked_div());
+
+//	thrust::transform(thrust::device_ptr<float>(d_input_images), thrust::device_ptr<float>(d_input_images) + total_size,
+//		thrust::device_ptr<float>(d_input_images), thrust::device_ptr<float>(d_output), checked_div());
+
+	//  print_and_log("computeLocalContrastNormalizationGPUMulti(), dim: %dx%dx%d, fft size: %dx%d, kernelXY: %dx%d, kernelWH: %dx%d, spectrum_size: %d, padded_size: %d, fftPlanManyInv: %d, total_size: %d\n", 
+	//                  dim[0], dim[1], dim[2], fftW, fftH, kernelX, kernelY, kernelW, kernelH, spectrum_size, padded_size, fftPlanManyInv, total_size);
+	return true;
 }
 
 extern "C" bool computeCovarianceGPUMulti(float *d_input_images1_multi, float *d_mu1_multi, float *d_input_images2_single, float *d_mu2_single, int *dim, int num_image_sets
@@ -424,10 +537,12 @@ extern "C" bool computeGaussianKernelSpectrum(float sigma, int x_dim, int y_dim,
 {
   unsigned int halfsize = getKernelSize(sigma);
   unsigned int kernel_size=2*halfsize+1;
-//  print_and_log("computeGaussianKernel(), kernel_size: %d, sigma: %f\n", kernel_size, sigma);
+  //print_and_log("computeGaussianKernel(), kernel_size: %d, sigma: %f\n", kernel_size, sigma);
   float *kernel = new float[kernel_size*kernel_size];
   // compute gaussian gradient kernel
   getGaussianKernel(sigma, kernel_size, kernel);
+  //for (int i = 0; i < kernel_size*kernel_size; i++) print_and_log("%f,", kernel[i]);
+  //print_and_log("\n");
 
   computeKernelSpectrumGPU( kernel, y_dim, x_dim, kernel_size, kernel_size, halfsize, halfsize, kernel_spectrum, fftPlanFwd );
 
@@ -675,6 +790,7 @@ __global__ void padDataClampToBorder_kernel(float *d_Dst, float *d_Src, int fftH
     const int dy = (y<dataH) ? y : ( (y>=dataH && y<borderH) ? (dataH-1) : 0 );
     const int dx = (x<dataW) ? x : ( (x>=dataW && x<borderW) ? (dataW-1) : 0 );
     d_Dst[y * fftW + x + fftH*fftW*imageID] = LOAD_FLOAT(dy * dataW + dx + dataH*dataW*imageID);
+	//d_Dst[y * fftW + x + fftH*fftW*imageID] = 0; // LOAD_FLOAT(dy * dataW + dx + dataH*dataW*imageID);
   }
 }
 
@@ -742,7 +858,8 @@ extern "C" void padDataClampToBorder(float *d_Dst, float *d_Src, int fftH, int f
     assert(d_Src != d_Dst);
     dim3 threads(32, 8);
     dim3 grid(iDivUp(fftW*imageRepeat, threads.x), iDivUp(fftH, threads.y));
-//    print_and_log("padDataClampToBorder, grid size: (%dx%d), block size: (%dx%d)\n", grid.x, grid.y, threads.x, threads.y);
+//    print_and_log("padDataClampToBorder, grid size: (%dx%d), block size: (%dx%d), fftH: %d, fftW: %d\n", grid.x, grid.y, threads.x, threads.y, fftH, fftW);
+//	print_and_log("dataH: %d, dataW: %d, kernelH: %d, kernelW: %d, kernelY: %d, kernelX: %d, imageRepeat: %d\n", dataH, dataW, kernelH, kernelW, kernelY, kernelX, imageRepeat);
     SET_FLOAT_BASE;   // When we use texture for small image (less than 256x256 maybe), this line causes crashes, for some reason...
     padDataClampToBorder_kernel<<<grid, threads>>>(d_Dst, d_Src, fftH, fftW, dataH, dataW, kernelH, kernelW, kernelY, kernelX, imageRepeat);
 }

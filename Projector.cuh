@@ -49,6 +49,8 @@ extern "C" void FillData(float *d_data, int size, float val);
 extern "C" void FillData_i(int *d_data, int size, int val);
 extern "C" void MultScalar(float *d_data, float scalar_val, int size);// data <- data * scalar_val
 extern "C" void MultData(float *d_data1, float *d_data2, float *d_out, int size); // out <- data1 * data2
+extern "C" void DivData(float *d_numerator, float *d_denominator, float *d_out, int size); // out <- d_numerator / d_denominator
+extern "C" void SqrtData(float *d_data, float *d_out, int size); // out <- sqrt(d_data)
 extern "C" void randn_CURAND(curandGenerator_t generator, float *d_data, int size);
 extern "C" void generateCMAESPopulation(float *d_arz, float *d_arx, float *d_arxvalid, float *d_xmean, float *d_diagD, float *d_lbounds, float *d_ubounds, float *d_OneVector, cublasHandle_t cublasHandle, int nRows, int nCols);
 
@@ -61,6 +63,7 @@ extern "C" void launch_Interpolator(float* d_data_out, const float transform[6],
 extern "C" void launch_Interpolator_BBoxCheck(float* d_data_out, int in_volumeDim[3], double in_voxelSize[3], const float* transform, const int num_transform_element, 
                                               const int type, const int order, const float bicubic_a, float back_ground_value, float *volume_center,
                                               float *scattered_pnts, int num_scattered_pnts, bool isWarp, int num_transforms);
+extern "C" void launch_LocalContrastNormalization(float *d_projection_local, int number_of_projections_in_one_set, dim3 grid, dim3 block);
 
 // common device functions
 __device__ bool getPixelIndex(unsigned int &x, unsigned int &y, unsigned int &z);
@@ -71,6 +74,7 @@ __global__ void LinearInterpolationProjection(float* d_projection, int* d_ZeroPi
 __global__ void LinearInterpolationDeformableProjection(float* d_projection, int* d_ZeroPixelCount, int number_of_projections_in_one_set);
 __global__ void SiddonProjection(float* d_projection, size_t pitch, int *d_random_gridID = NULL);
 __global__ void RayCastingProjection(float* d_projection);
+__global__ void LocalContrastNormalization(float* d_projection, int number_of_projections_in_one_set);
 
 // intersect ray with a box
 // http://www.siggraph.org/education/materials/HyperGraph/raytrace/rtinter3.htm

@@ -240,6 +240,10 @@ classdef RegTools < handle
             calllib(obj.library, 'SetStepSize', obj.instance, step_size);
         end
 
+        function SetLCNSigma(obj, LCN_sigma )
+            calllib(obj.library, 'SetLCNSigma', obj.instance, LCN_sigma);
+        end
+
         function step_size = GetStepSize(obj)
             step_size_ptr = libpointer( 'singlePtr', 0 );
             calllib(obj.library, 'GetStepSize', obj.instance, step_size_ptr);
@@ -413,14 +417,15 @@ classdef RegTools < handle
             end
         end
         
-        function [Bx, time] = ForwardProject(obj, volume, param1, param2, numView, computation_mode, numGPU, memory_store_mode, initData )
+        function [Bx, time] = ForwardProject(obj, volume, param1, param2, numView, computation_mode, numGPU, memory_store_mode, initData, LCN_plan_ID )
 %         function [Bx, time] = ForwardProject(obj, volume, param1, param2, numView, numGPU, memory_store_mode ) % signature of previous version
             % param1:
             %   if volume is plan ID, transformations for each volume plan
             %   if volume is actual volume, max_value if necessary
             if(~exist('numGPU','var') || isempty(numGPU)), numGPU = -1; end
-            if(~exist('memory_store_mode','var')), memory_store_mode = obj.MemoryStoreMode_Replace; end
-            if(~exist('initData', 'var')), initData = []; end;
+            if(~exist('memory_store_mode','var') || isempty(memory_store_mode)), memory_store_mode = obj.MemoryStoreMode_Replace; end
+            if(~exist('initData', 'var') || isempty(initData)), initData = []; end
+            if(~exist('LCN_plan_ID', 'var') || isempty(LCN_plan_ID)), LCN_plan_ID = -1; end
             
             projection_size = obj.GetProjectionDim();
             nb = obj.GetNumberOfEnabledProjections();
@@ -451,7 +456,7 @@ classdef RegTools < handle
                                                      'maxValue', libpointer, 'dDataID', -1, 'numGPU', numGPU, 'initData', libpointer('singlePtr', initData) ));
                     end
                     calllib(obj.library, 'ForwardProjection_withPlan', obj.instance, projectionResult, volume, size(param1,3), ...
-                                           libpointer('doublePtr', param1), numView, size(param2,3), libpointer('doublePtr', param2), memory_store_mode);
+                                           libpointer('doublePtr', param1), numView, size(param2,3), libpointer('doublePtr', param2), memory_store_mode, LCN_plan_ID);
                 else
                     projection_buffer_size = [projection_size nb];
                     if(any(obj.AllocatedProjectionBufferSize ~= projection_buffer_size))
@@ -463,7 +468,7 @@ classdef RegTools < handle
                     obj.ProjectionBufferPtr.initData = initData;
 
                     calllib(obj.library, 'ForwardProjection_withPlan', obj.instance, obj.ProjectionBufferPtr, volume, size(param1,3), ...
-                                           libpointer('doublePtr', param1), numView, size(param2,3), libpointer('doublePtr', param2), memory_store_mode);
+                                           libpointer('doublePtr', param1), numView, size(param2,3), libpointer('doublePtr', param2), memory_store_mode, LCN_plan_ID);
                     Bx = reshape( obj.ProjectionBufferPtr.Data, projection_buffer_size );
                     time = obj.ProjectionBufferPtr.projectionTime;
                 end
@@ -630,6 +635,16 @@ classdef RegTools < handle
             forward_projection_plan_id = int32(calllib(obj.library, 'CreateVolumePlan_cudaArray', obj.instance, forward_projection_plan, 1 ));
             clear forward_projection_plan;
         end
+       
+        function LCN_computation_plan_id = CreateLCNComputationPlan(obj, projection_dim, num_projection_sets, LCN_sigma)
+            LCN_computation_plan = libstruct('LCN_computation_plan', ...
+                                struct('ProjectionDim', libpointer('int32Ptr', projection_dim), ...
+                                       'NumProjectionSets', num_projection_sets, ...
+                                       'LCN_sigma', LCN_sigma ...
+                                       ));
+            LCN_computation_plan_id = int32(calllib(obj.library, 'CreateLCNComputationPlan', obj.instance, LCN_computation_plan));
+            clear LCN_computation_plan;
+        end
         
         function [volumeDim voxelSize numVolumes] = GetInterpolatorPlanVolumeInfo(obj, interpolator_plan_id)
             volumeDimPtr = libpointer('int32Ptr', [0 0 0]);
@@ -789,6 +804,10 @@ classdef RegTools < handle
         
         function DeleteSimilarityMeasureComputationPlan(obj, plan_id)
             calllib(obj.library, 'DeleteSimilarityMeasureComputationPlan', obj.instance, plan_id );
+        end
+        
+        function DeleteLCNComputationPlan(obj, plan_id)
+            calllib(obj.library, 'DeleteLCNComputationPlan', obj.instance, plan_id );
         end
         
         function [similarity_measure, time] = ComputeSimilarityMeasure(obj, plan_ids, similarity_type, numImageSet)

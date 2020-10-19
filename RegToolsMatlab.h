@@ -45,6 +45,8 @@ EXPORT int CreateSimilarityMeasureComputationPlan(struct RegToolsInstance instan
 EXPORT int GetSimilarityMeasureComputationPlanImageInfo(struct RegToolsInstance instance, int plan_id, int GPU_ID, int *image_dim, double *normalization_factor);
 EXPORT int GetSimilarityMeasureComputationPlanImages(struct RegToolsInstance instance, int plan_id, int GPU_ID, float *images, int image_type, int frame_no);
 EXPORT int DeleteSimilarityMeasureComputationPlan(struct RegToolsInstance instance, int plan_id);
+EXPORT int CreateLCNComputationPlan(struct RegToolsInstance instance, struct LCN_computation_plan *plan);
+EXPORT int DeleteLCNComputationPlan(struct RegToolsInstance instance, int plan_id);
 
 EXPORT void ComputeSimilarityMeasure(struct RegToolsInstance instance, int plan_id, int similarity_type, int numImageSet, double *sm, float *elapsed_time);
 EXPORT void ComputeSimilarityMeasure2(struct RegToolsInstance instance, int plan_id1, int plan_id2, int similarity_type, int numImageSet, double *sm, float *elapsed_time);
@@ -60,7 +62,7 @@ EXPORT int RemoveLogFile(struct RegToolsInstance instance);
 EXPORT int ForwardProjection(struct RegToolsInstance instance, struct ProjectionResult *result, const float *volume);
 EXPORT int ForwardProjection_with3x4ProjectionMatrices(struct RegToolsInstance instance, struct ProjectionResult *result, const int plan_id, const double *pm_3x4);
 EXPORT int ForwardProjection_withPlan(struct RegToolsInstance instance, struct ProjectionResult *result, const int plan_id, int numGlobals, const double *transformations_global
-                                      , int numView, int numLocalTrans, const double *transformations_local, const int memory_store_mode);
+                                      , int numView, int numLocalTrans, const double *transformations_local, const int memory_store_mode, const int LCN_plan_ID);
 //EXPORT int Interpolation(struct RegToolsInstance instance, struct ProjectionResult *result, const float *volume, const float *transform, int type, int order, float bicubic_a, float back_ground, float *volume_center, float penalty_beta, int volumePlanID);
 EXPORT int Interpolation_withPlan(struct RegToolsInstance instance, struct ProjectionResult *result, int plan_id, const float *transforms, const int num_transform_element, int num_transform, int type, int order, float bicubic_a, float back_ground, float *volume_center);
 EXPORT int ApplyDeformationField(struct RegToolsInstance instance, struct ProjectionResult *result, int target_volume_id, int *warps_tex, int num_dims, int type, int order, 
@@ -76,7 +78,7 @@ EXPORT int GetVolumeInfo(struct RegToolsInstance instance, int *volume_dim_x, in
 
 EXPORT int SetStepSize(struct RegToolsInstance instance, float step_size);
 EXPORT int GetStepSize(struct RegToolsInstance instance, float *step_size);
-EXPORT int SetRayCastingLOD(struct RegToolsInstance instance, int lod);
+EXPORT int SetLCNSigma(struct RegToolsInstance instance, float LCN_sigma);
 EXPORT int GetRayCastingLOD(struct RegToolsInstance instance, int *lod);
 EXPORT int SetRayCastingThreshold(struct RegToolsInstance instance, float threshold);
 EXPORT int GetRayCastingThreshold(struct RegToolsInstance instance, float *threshold);

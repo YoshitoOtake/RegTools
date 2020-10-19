@@ -143,6 +143,15 @@ int DeleteSimilarityMeasureComputationPlan(struct RegToolsInstance instance, int
   return reinterpret_cast<RegTools*>(instance.InstancePtr)->DeleteSimilarityMeasureComputationPlan(plan_id);
 }
 
+int CreateLCNComputationPlan(struct RegToolsInstance instance, struct LCN_computation_plan *plan)
+{
+	return reinterpret_cast<RegTools*>(instance.InstancePtr)->CreateLCNComputationPlan(plan);
+}
+
+int DeleteLCNComputationPlan(struct RegToolsInstance instance, int plan_id)
+{
+	return reinterpret_cast<RegTools*>(instance.InstancePtr)->DeleteLCNComputationPlan(plan_id);
+}
 void ComputeSimilarityMeasure(struct RegToolsInstance instance, int plan_id, int similarity_type, int numImageSet, double *sm, float *elapsed_time)
 {
   return reinterpret_cast<RegTools*>(instance.InstancePtr)->ComputeSimilarityMeasure(plan_id, similarity_type, numImageSet, sm, elapsed_time);
@@ -184,9 +193,9 @@ int ForwardProjection_with3x4ProjectionMatrices(struct RegToolsInstance instance
 }
 
 int ForwardProjection_withPlan(struct RegToolsInstance instance, struct ProjectionResult *result, const int plan_id, int numGlobals, const double *transformations_global, int numView
-                               , int numLocalTrans, const double *transformations_local, const int memory_store_mode)
+                               , int numLocalTrans, const double *transformations_local, const int memory_store_mode, const int LCN_plan_ID)
 {
-  return reinterpret_cast<RegTools*>(instance.InstancePtr)->ForwardProjection_withPlan(*result, plan_id, numGlobals, transformations_global, numView, numLocalTrans, transformations_local, memory_store_mode);
+  return reinterpret_cast<RegTools*>(instance.InstancePtr)->ForwardProjection_withPlan(*result, plan_id, numGlobals, transformations_global, numView, numLocalTrans, transformations_local, memory_store_mode, LCN_plan_ID);
 }
 
 int Interpolation_withPlan(struct RegToolsInstance instance, struct ProjectionResult *result, int plan_id, const float *transforms, const int num_transform_element, int num_transforms, int type, int order, float bicubic_a, float back_ground, float *volume_center)
@@ -249,6 +258,11 @@ int SetStepSize(struct RegToolsInstance instance, float step_size)
 int GetStepSize(struct RegToolsInstance instance, float *step_size)
 {
   return reinterpret_cast<RegTools*>(instance.InstancePtr)->GetStepSize(step_size);
+}
+
+int SetLCNSigma(struct RegToolsInstance instance, float LCN_sigma)
+{
+	return reinterpret_cast<RegTools*>(instance.InstancePtr)->SetLCNSigma(LCN_sigma);
 }
 
 int SetRayCastingLOD(struct RegToolsInstance instance, int lod)

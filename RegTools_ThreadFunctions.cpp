@@ -40,11 +40,12 @@ void RegTools::RegToolsThread_SimilarityMeasureComputation(RegToolsThreadParam *
       d_floating_images = plan2->d_fixed_images;
       d_floating_Xgrad = plan2->d_fixed_Xgrad;  d_floating_Ygrad = plan2->d_fixed_Ygrad;  d_floating_normalized = plan2->d_fixed_normalized;
     } else {
-      if(d_Projections){ d_floating_images = d_Projections;   /*print_and_log("RegToolsThread_SimilarityMeasureComputation(), compute similarity with projections\n");*/ }
-      else if(d_Volume){ d_floating_images = d_Volume;        /*print_and_log("RegToolsThread_SimilarityMeasureComputation(), compute similarity with volume\n");*/ }
+      if(d_Projections){ d_floating_images = d_Projections;/*   print_and_log("RegToolsThread_SimilarityMeasureComputation(), compute similarity with projections\n");*/ }
+      else if(d_Volume){ d_floating_images = d_Volume;      /*  print_and_log("RegToolsThread_SimilarityMeasureComputation(), compute similarity with volume\n");*/ }
       else { print_and_log("Error at SimilarityMeasureComputation. Call ForwardProject(), BackProject() or Interpolation() before computing similarity measrue\n");  return; }
 //        if(in_param->m_SimilarityMeasureComputationImageOffset<in_param->m_TransferBlockSize) // make sure if the following address is not out of range
       d_floating_Xgrad = plan->d_floating_Xgrad;   d_floating_Ygrad = plan->d_floating_Ygrad;   d_floating_normalized = plan->d_floating_normalized;
+//	  print_and_log("d_floating_Xgrad: %d, d_floating_Ygrad: %d, d_floating_normalized: %d\n", d_floating_Xgrad, d_floating_Ygrad, d_floating_normalized);
     }
 
     // computation of the similarity measure between plan and forward projected images (forward projected images "d_Projections" are the floating images)
@@ -112,16 +113,32 @@ void RegTools::RegToolsThread_SimilarityMeasureComputation(RegToolsThreadParam *
       computeGaussianGradientGPUMulti(d_floating_images, plan->ImageDim, in_param->m_SimilarityMeasure_NumberOfImageSet, d_floating_Xgrad, d_floating_Ygrad, plan->Sigma
                                   , plan->d_X_kernel_spectrum, plan->d_Y_kernel_spectrum, plan->d_temp_padded, plan->d_temp_spectrum
                                   , *(plan->fftPlanManyFwd), *(plan->fftPlanManyInv), plan->h_GI_threshold);
-      memset(plan->SimilarityMeasure, 0, sizeof(double)*in_param->m_SimilarityMeasure_NumberOfImageSet);
-      zeromean_stddivide_Images(d_floating_Xgrad, plan->d_intermediate_images, fixedImageDim, in_param->m_SimilarityMeasure_NumberOfImageSet, in_param->m_CublasHandle, plan->d_temp_SM, plan->d_WeightVector
-                      , 1.0f/plan->NormalizationFactor, plan->d_mask_weight);
-      zeromean_stddivide_Images(d_floating_Ygrad, plan->d_intermediate_images, fixedImageDim, in_param->m_SimilarityMeasure_NumberOfImageSet, in_param->m_CublasHandle, plan->d_temp_SM, plan->d_WeightVector
-                      , 1.0f/plan->NormalizationFactor, plan->d_mask_weight);
-      computeNormalizedCrossCorrelation_Pixels(d_floating_Xgrad, plan->d_fixed_Xgrad, fixedImageDim, in_param->m_SimilarityMeasure_NumberOfImageSet, in_param->m_CublasHandle);
+	  //print_and_log("RegTools::RegToolsThread_SimilarityMeasureComputation(), computing GC1\n");
+	  memset(plan->SimilarityMeasure, 0, sizeof(double)*in_param->m_SimilarityMeasure_NumberOfImageSet);
+	  //print_and_log("RegTools::RegToolsThread_SimilarityMeasureComputation(), in_param->m_CudaDeviceID: %d, computing GC2\n", in_param->m_CudaDeviceID);
+
+	  zeromean_stddivide_Images(d_floating_Xgrad, plan->d_intermediate_images, fixedImageDim, in_param->m_SimilarityMeasure_NumberOfImageSet, in_param->m_CublasHandle, plan->d_temp_SM, plan->d_WeightVector
+			  , 1.0f/plan->NormalizationFactor, plan->d_mask_weight, d_floating_images);
+	  //print_and_log("RegTools::RegToolsThread_SimilarityMeasureComputation(), computing GC3\n");
+	  zeromean_stddivide_Images(d_floating_Ygrad, plan->d_intermediate_images, fixedImageDim, in_param->m_SimilarityMeasure_NumberOfImageSet, in_param->m_CublasHandle, plan->d_temp_SM, plan->d_WeightVector
+                      , 1.0f/plan->NormalizationFactor, plan->d_mask_weight, d_floating_images);
+	  //print_and_log("RegTools::RegToolsThread_SimilarityMeasureComputation(), computing GC4\n");
+	  computeNormalizedCrossCorrelation_Pixels(d_floating_Xgrad, plan->d_fixed_Xgrad, fixedImageDim, in_param->m_SimilarityMeasure_NumberOfImageSet, in_param->m_CublasHandle);
       computeNormalizedCrossCorrelation_Pixels(d_floating_Ygrad, plan->d_fixed_Ygrad, fixedImageDim, in_param->m_SimilarityMeasure_NumberOfImageSet, in_param->m_CublasHandle);
-      computeNormalizedCrossCorrelation_Sum(d_floating_Xgrad, d_floating_Ygrad, plan->d_intermediate_images, plan->SimilarityMeasure, fixedImageDim, in_param->m_SimilarityMeasure_NumberOfImageSet
+	  //print_and_log("RegTools::RegToolsThread_SimilarityMeasureComputation(), computing GC5\n");
+	  //cudaSetDevice(in_param->m_CudaDeviceID);
+	  computeNormalizedCrossCorrelation_Sum(d_floating_Xgrad, d_floating_Ygrad, plan->d_intermediate_images, plan->SimilarityMeasure, fixedImageDim, in_param->m_SimilarityMeasure_NumberOfImageSet
                                                       , in_param->m_CublasHandle, plan->d_temp_SM, plan->h_temp_SM, plan->d_WeightVector);
-    } else if(plan->SimilarityMeasureType == SIMILARITY_MEASURE_GI_STD_NORM){
+	  //print_and_log("RegTools::RegToolsThread_SimilarityMeasureComputation(), computed GC\n");
+/*	  if (in_param->m_CountNonIntersectedPixel) {
+		  // normalization by the number of non-zero pixels
+		  for (int i = 0; i<in_param->m_SimilarityMeasure_NumberOfImageSet; i++) {
+			  plan->SimilarityMeasure[i] *= (double)(image_size) / (double)(image_size - in_param->m_ZeroPixelCount[i]);
+			  //print_and_log("similarity computation: image #%d, number of zero pixels = %d/%d, weight = %f\n", i, in_param->m_ZeroPixelCount[i], image_size, (double)(image_size) / (double)(image_size - in_param->m_ZeroPixelCount[i]));
+		  }
+	  }
+*/
+	} else if(plan->SimilarityMeasureType == SIMILARITY_MEASURE_GI_STD_NORM){
 /*
       computeGaussianGradientGPUMulti(d_floating_images, plan->ImageDim, in_param->m_SimilarityMeasure_NumberOfImageSet, d_floating_Xgrad, d_floating_Ygrad, plan->Sigma
                                   , plan->d_X_kernel_spectrum, plan->d_Y_kernel_spectrum, plan->d_temp_padded, plan->d_temp_spectrum
@@ -219,8 +236,10 @@ void RegTools::RegToolsThread_SimilarityMeasureComputation(RegToolsThreadParam *
       unsigned int halfsize = getKernelSize(plan->Sigma);
       unsigned int kernel_size=2*halfsize+1;
       const int fftH = snapTransformSize(plan->ImageDim[1] + kernel_size - 1), fftW = snapTransformSize(plan->ImageDim[0] + kernel_size - 1);
+//	  print_and_log("RegToolsThread_SimilarityMeasureComputation(), fftH: %d, fftW: %d, plan->MaxNumImageSets: %d, plan->ImageDim[2]: %d\n", fftH, fftW, plan->MaxNumImageSets, plan->ImageDim[2]);
       if(!plan->d_temp_padded)          cutilSafeCall( cudaMalloc(&(plan->d_temp_padded), fftH*fftW*plan->MaxNumImageSets*plan->ImageDim[2]*2*sizeof(float)) ); // for X and Y gradient
-      if(!plan->d_temp_spectrum)        cutilSafeCall( cudaMalloc(&(plan->d_temp_spectrum), fftH *(fftW/2+1)*plan->MaxNumImageSets*plan->ImageDim[2]*2 * sizeof(fComplex)) ); // for X and Y gradient
+//	  if(!plan->d_temp_padded)          cutilSafeCall( cudaMalloc(&(plan->d_temp_padded), fftH*fftW*plan->MaxNumImageSets*plan->ImageDim[2]*sizeof(float)) ); // for X and Y gradient (removed "*2" on 2020/1/18, I believe this is a redundant malloc)
+	  if(!plan->d_temp_spectrum)        cutilSafeCall( cudaMalloc(&(plan->d_temp_spectrum), fftH *(fftW/2+1)*plan->MaxNumImageSets*plan->ImageDim[2]*2 * sizeof(fComplex)) ); // for X and Y gradient
       if(!plan->d_X_kernel_spectrum)    cutilSafeCall( cudaMalloc(&(plan->d_X_kernel_spectrum), fftH * (fftW / 2 + 1) * sizeof(fComplex)) );
       if(!plan->d_Y_kernel_spectrum)    cutilSafeCall( cudaMalloc(&(plan->d_Y_kernel_spectrum), fftH * (fftW / 2 + 1) * sizeof(fComplex)) );
     }
@@ -255,14 +274,14 @@ void RegTools::RegToolsThread_UpdateSimilarityMeasureComputationPlan(SimilarityM
 {
   size_t fixedImageDim = plan->ImageDim[0]*plan->ImageDim[1]*plan->ImageDim[2];
   if((plan->NormalizeMax_fixed==0 && plan->NormalizeMin_fixed==0) || (plan->NormalizeMax_fixed != plan->NormalizeMin_fixed)){
-    print_and_log("normalize fixed image for MI/NMI computation, max: %f, min: %f\n", plan->NormalizeMax_fixed, plan->NormalizeMin_fixed)
+    //print_and_log("normalize fixed image for MI/NMI computation, max: %f, min: %f\n", plan->NormalizeMax_fixed, plan->NormalizeMin_fixed)
     // if both Min and Max are non-zero and equal, we do not prepare for normalization (MI/NMI cannot be computed)
     cutilSafeCall( cudaMemcpy( plan->d_fixed_normalized, plan->d_fixed_images, fixedImageDim*sizeof(float), cudaMemcpyDeviceToDevice) );
     normalizeImages(plan->d_fixed_normalized, static_cast<int>(fixedImageDim), plan->NormalizeMax_fixed, plan->NormalizeMin_fixed);
     if(plan->d_mask_weight) maskImages( plan->d_fixed_normalized, plan->d_mask_weight, fixedImageDim, 1, in_param->m_CublasHandle );
     plan->h_fixed_entropy = computeEntropy( plan->d_fixed_normalized, static_cast<int>(fixedImageDim), plan->d_hist_buf, plan->d_pdf_buf);
   }
-  print_and_log("plan->SimilarityMeasureType: %d, plan->MaxNumImageSets: %d\n", plan->SimilarityMeasureType, plan->MaxNumImageSets);
+  //print_and_log("plan->SimilarityMeasureType: %d, plan->MaxNumImageSets: %d\n", plan->SimilarityMeasureType, plan->MaxNumImageSets);
   FillData(plan->d_WeightVector, fixedImageDim, 1.0f); // this initialization is important for some similarity metrics
   if(plan->Sigma>0){
     // if Sigma is negative, we do not prepare for gradient based similarity measure (e.g. GI)
@@ -283,9 +302,10 @@ void RegTools::RegToolsThread_UpdateSimilarityMeasureComputationPlan(SimilarityM
       cufftSafeCall( cufftPlan2d(plan->fftPlanFwd, fftH, fftW, CUFFT_R2C) );
       cufftSafeCall( cufftPlan2d(plan->fftPlanInv, fftH, fftW, CUFFT_C2R) );
       int n[2] = {fftH, fftW};
+//	  print_and_log("fftH: %d, fftW: %d, plan->ImageDim[2]: %d, plan->MaxNumImageSets: %d, n: (%d, %d), plan->m_CudaDeviceID_Sequential: %d, in_param->m_CudaDeviceID: %d, in_param->m_CublasHandle: %d, plan->d_temp_SM: %d\n", fftH, fftW, plan->ImageDim[2], plan->MaxNumImageSets, n[0], n[1], plan->m_CudaDeviceID_Sequential, in_param->m_CudaDeviceID, in_param->m_CublasHandle, plan->d_temp_SM);
       cufftSafeCall( cufftPlanMany( plan->fftPlanManyFwd, 2, n, NULL, 1, 0, NULL, 1, 0, CUFFT_R2C, plan->MaxNumImageSets*plan->ImageDim[2]) );    // For forward FFT, X and Y can share the same spectrum of data
       cufftSafeCall( cufftPlanMany( plan->fftPlanManyInv, 2, n, NULL, 1, 0, NULL, 1, 0, CUFFT_C2R, plan->MaxNumImageSets*plan->ImageDim[2]*2) );  // For inverse FFT, X and Y do NOT share the spectrum of data
-      
+
       // preprocessing on fixed image specific for each similarity metric
       if(plan->SimilarityMeasureType == SIMILARITY_MEASURE_SSIM){
         cufftSafeCall( cufftPlanMany( plan->fftPlanManyInv, 2, n, NULL, 1, 0, NULL, 1, 0, CUFFT_C2R, plan->MaxNumImageSets*plan->ImageDim[2]) );  // for one gaussian filter
@@ -306,11 +326,11 @@ void RegTools::RegToolsThread_UpdateSimilarityMeasureComputationPlan(SimilarityM
                                     , *(plan->fftPlanManyFwd), *(plan->fftPlanManyInv), plan->h_GI_threshold);
         if(plan->d_mask_weight)  MultData(plan->d_fixed_images, plan->d_mask_weight, plan->d_fixed_images, fixedImageDim);
 
-        plan->NormalizationFactor = plan->ImageDim[0]*plan->ImageDim[1]*plan->ImageDim[2];
+		plan->NormalizationFactor = plan->ImageDim[0] * plan->ImageDim[1] *plan->ImageDim[2];
         if(plan->h_mask_weight) plan->NormalizationFactor -= countZeroPixels(plan->d_mask_weight, fixedImageDim);   // if mask is used, subtract number of zero pixels
         //FillData(plan->d_WeightVector, fixedImageDim, 1.0f/plan->NormalizationFactor);
-        zeromean_stddivide_Images(plan->d_fixed_Xgrad, plan->d_intermediate_images, fixedImageDim, 1, in_param->m_CublasHandle, plan->d_temp_SM, plan->d_WeightVector, 1.0f/plan->NormalizationFactor, plan->d_mask_weight);
-        zeromean_stddivide_Images(plan->d_fixed_Ygrad, plan->d_intermediate_images, fixedImageDim, 1, in_param->m_CublasHandle, plan->d_temp_SM, plan->d_WeightVector, 1.0f/plan->NormalizationFactor, plan->d_mask_weight);
+        zeromean_stddivide_Images(plan->d_fixed_Xgrad, plan->d_intermediate_images, fixedImageDim, 1, in_param->m_CublasHandle, plan->d_temp_SM, plan->d_WeightVector, 1.0f/plan->NormalizationFactor, plan->d_mask_weight, plan->d_mask_weight);
+        zeromean_stddivide_Images(plan->d_fixed_Ygrad, plan->d_intermediate_images, fixedImageDim, 1, in_param->m_CublasHandle, plan->d_temp_SM, plan->d_WeightVector, 1.0f/plan->NormalizationFactor, plan->d_mask_weight, plan->d_mask_weight);
       } else if(plan->SimilarityMeasureType == SIMILARITY_MEASURE_GI_STD_NORM){
         computeGaussianGradientKernelSpectrum(plan->Sigma, plan->ImageDim[0], plan->ImageDim[1], plan->ImageDim[2]
                                               , plan->d_X_kernel_spectrum, plan->d_Y_kernel_spectrum, *(plan->fftPlanFwd));
@@ -338,7 +358,7 @@ void RegTools::RegToolsThread_UpdateSimilarityMeasureComputationPlan(SimilarityM
                 , static_cast<int>(fixedImageDim), plan->d_mask_weight, isSingleModality, &(plan->NormalizationFactor), 1
                 , in_param->m_CublasHandle, plan->d_temp_SM, plan->h_temp_SM, plan->d_WeightVector, 1.0, exclusive_norm);
       }
-      print_and_log("NormalizationFactor = %f\n", plan->NormalizationFactor);
+      //print_and_log("NormalizationFactor = %f\n", plan->NormalizationFactor);
     }
   }
   if(plan->SimilarityMeasureType == SIMILARITY_MEASURE_NCC){
@@ -491,6 +511,36 @@ void RegTools::RegToolsThread_VolumePlan_cudaArray(RegToolsThreadParam *in_param
     cudaMallocForTexture(&(in_param->m_VolumePlan_cudaArray->d_volume[dev_id]), make_cudaExtent(in_param->m_VolumeDim.width, in_param->m_VolumeDim.height, in_param->m_VolumeDim.depth*in_param->m_NumVolumes));
     copyDataToCudaArray( in_param->m_VolumePlan_cudaArray->d_volume[dev_id], in_param->m_Volume, 0, 0, in_param->m_VolumeDim, in_param->m_NumVolumes, cudaMemcpyHostToDevice);
   }
+}
+
+void RegTools::RegToolsThread_LCNComputationPlan(RegToolsThreadParam *in_param)
+{
+	int dev_id = in_param->m_CudaDeviceID_Sequential;
+	int *p = in_param->m_LCNComputationPlan->ProjectionDim;
+	unsigned int halfsize = getKernelSize(in_param->m_LCNComputationPlan->LCN_sigma);
+	unsigned int kernel_size = 2 * halfsize + 1;
+	const int fftH = snapTransformSize(p[1] + kernel_size - 1), fftW = snapTransformSize(p[0] + kernel_size - 1);
+	int n[2] = { fftH, fftW };
+	RegToolsThread_MemGetInfo(in_param->m_FreeMem, in_param->m_TotalMem);
+	print_and_log("RegToolsThread_LCNComputationPlan(), before, available memory: %f MB, projection_dim: (%d,%d,%d), NumProjectionSets: %d, LCN_sigma: %f\n", (float)in_param->m_FreeMem / 1024.0f / 1024.0f, p[0], p[1], p[2], in_param->m_LCNComputationPlan->NumProjectionSets, in_param->m_LCNComputationPlan->LCN_sigma);
+	print_and_log("RegToolsThread_LCNComputationPlan(), fftH: %d, fftW: %d, kernel_size: %d\n", fftH, fftW, kernel_size);
+	if (in_param->m_LCNComputationPlan->create_flag) {
+		print_and_log("create LCN computation plan\n");
+//		in_param->m_LCNComputationPlan->fftPlanLCNFwd[dev_id] = new cufftHandle;
+//		in_param->m_LCNComputationPlan->fftPlanLCNManyFwd[dev_id] = new cufftHandle;
+//		in_param->m_LCNComputationPlan->fftPlanLCNManyInv[dev_id] = new cufftHandle;
+		cufftSafeCall(cufftPlan2d(&in_param->m_LCNComputationPlan->fftPlanLCNFwd[dev_id], fftH, fftW, CUFFT_R2C));
+		cufftSafeCall(cufftPlanMany(&in_param->m_LCNComputationPlan->fftPlanLCNManyFwd[dev_id], 2, n, NULL, 1, 0, NULL, 1, 0, CUFFT_R2C, p[2] * in_param->m_LCNComputationPlan->NumProjectionSets));  // For forward FFT
+		cufftSafeCall(cufftPlanMany(&in_param->m_LCNComputationPlan->fftPlanLCNManyInv[dev_id], 2, n, NULL, 1, 0, NULL, 1, 0, CUFFT_C2R, p[2] * in_param->m_LCNComputationPlan->NumProjectionSets));  // For forward FFT
+	}
+	else {
+		print_and_log("delete LCN computation plan\n");
+		cufftSafeCall(cufftDestroy(in_param->m_LCNComputationPlan->fftPlanLCNFwd[dev_id]));	   //delete in_param->m_LCNComputationPlan->fftPlanLCNFwd[dev_id]; in_param->m_LCNComputationPlan->fftPlanLCNFwd[dev_id] = NULL;
+		cufftSafeCall(cufftDestroy(in_param->m_LCNComputationPlan->fftPlanLCNManyFwd[dev_id])); //delete in_param->m_LCNComputationPlan->fftPlanLCNManyFwd[dev_id]; in_param->m_LCNComputationPlan->fftPlanLCNManyFwd[dev_id] = NULL;
+		cufftSafeCall(cufftDestroy(in_param->m_LCNComputationPlan->fftPlanLCNManyInv[dev_id])); //delete in_param->m_LCNComputationPlan->fftPlanLCNManyInv[dev_id]; in_param->m_LCNComputationPlan->fftPlanLCNManyInv[dev_id] = NULL;
+	}
+	RegToolsThread_MemGetInfo(in_param->m_FreeMem, in_param->m_TotalMem);
+	print_and_log("RegToolsThread_LCNComputationPlan(), after, available memory: %f MB, projection_dim: (%d,%d,%d), LCN_sigma: %f\n", (float)in_param->m_FreeMem / 1024.0f / 1024.0f, p[0], p[1], p[2], in_param->m_LCNComputationPlan->LCN_sigma);
 }
 
 void RegTools::RegToolsThread_CopyVarToCudaMemory(RegToolsThreadParam *in_param)
@@ -794,6 +844,7 @@ void RegTools::RegToolsThread_main(RegToolsThreadParam *in_param)
   else if(in_param->m_ProcessingMode == ProcessingMode_ComputeLinearCombination){     RegToolsThread_ComputeLinearCombination(in_param); return; }
   else if (in_param->m_ProcessingMode == ProcessingMode_CopyHostInitProjectionToDevice) { RegToolsThread_CopyHostInitProjectionToDevice(in_param); return; }
   else if (in_param->m_ProcessingMode == ProcessingMode_ClearDeviceInitProjection) { RegToolsThread_ClearDeviceInitProjection(in_param); return; }
+  else if (in_param->m_ProcessingMode == ProcessingMode_LCNCompuatationPlan){		  RegToolsThread_LCNComputationPlan(in_param);              return; }
   else if(in_param->m_ProcessingMode == ProcessingMode_DoNothing){                    return; }
 
   // start forward/back projector process
@@ -1059,6 +1110,10 @@ void RegTools::RegToolsThread_main(RegToolsThreadParam *in_param)
     else if(in_param->m_ProjectorMode == ProjectorMode_LinearInterpolationDeformable)
       launch_LinearInterpolationDeformableProjector(d_ProjectionResult, d_ZeroPixelCount, in_param->m_NumEnabledProjections/in_param->m_NumProjectionSets, grid, block);
 
+	if (in_param->m_LCN_sigma > 0) {
+		RegToolsThread_LocalContrastNormalization(in_param, d_ProjectionResult, in_param->m_LCN_sigma);
+	}
+
 //    print_and_log("number of projections in one set: %d, m_DifferentVolumePerProjectionSet: %d, block_size: %d\n", in_param->m_NumEnabledProjections/in_param->m_NumProjectionSets, in_param->m_DifferentVolumePerProjectionSet, block_size);
     unBindPrecomputedMatrixTexture();
     unBindWarpTexture();
@@ -1111,6 +1166,88 @@ void RegTools::RegToolsThread_main(RegToolsThreadParam *in_param)
     // post processing
     in_param->d_Projections = d_ProjectionResult;   in_param->d_Volume = NULL;
   }
+}
+
+void RegTools::RegToolsThread_LocalContrastNormalization(RegToolsThreadParam *in_param, float *d_ProjectionResult, int LCN_sigma)
+{
+	unsigned int halfsize = getKernelSize(LCN_sigma);
+	unsigned int kernel_size = 2 * halfsize + 1;
+	fComplex *d_LCN_gaussian_kernel;
+	cufftHandle *fftPlanLCNFwd;
+	cufftHandle *fftPlanLCNManyFwd;
+	cufftHandle *fftPlanLCNManyInv;
+	int dim[3] = { in_param->m_ProjectionWidth, in_param->m_ProjectionHeight, ceil((float)(in_param->m_NumEnabledProjections)/(float)(in_param->m_NumProjectionSets)) };
+	const int fftH = snapTransformSize(dim[1] + kernel_size - 1), fftW = snapTransformSize(dim[0] + kernel_size - 1);
+	float *d_centered_images, *d_std_images;
+	float *d_temp_padded;
+	fComplex *d_temp_spectrum;
+	RegToolsThread_MemGetInfo(in_param->m_FreeMem, in_param->m_TotalMem);
+	print_and_log("RegToolsThread_LocalContrastNormalization(GPU_ID:%d), before, available memory: %f MB\n", in_param->m_CudaDeviceID_Sequential, (float)in_param->m_FreeMem/1024.0f/1024.0f);
+	print_and_log("m_NumEnabledProjections: %d, m_NumProjectionSets:%d, dim: (%d,%d,%d)\n", in_param->m_NumEnabledProjections, in_param->m_NumProjectionSets, dim[0], dim[1], dim[2]);
+	print_and_log("kernel_size: %d, fftH: %d, fftW:%d\n", kernel_size, fftH, fftW);
+	cutilSafeCall(cudaMalloc(&(d_centered_images), dim[0] * dim[1] * dim[2]* in_param->m_NumProjectionSets * sizeof(float)));
+//	cutilSafeCall(cudaMalloc(&(d_std_images), dim[0] * dim[1] * dim[2] * in_param->m_NumProjectionSets * sizeof(float)));
+	cutilSafeCall(cudaMalloc(&(d_temp_padded), fftH*fftW*dim[2] * in_param->m_NumProjectionSets * sizeof(float)));
+	cutilSafeCall(cudaMalloc(&(d_temp_spectrum), fftH *(fftW / 2 + 1)*dim[2] * in_param->m_NumProjectionSets * sizeof(fComplex)));
+	cutilSafeCall(cudaMalloc(&(d_LCN_gaussian_kernel), fftH * (fftW / 2 + 1) * sizeof(fComplex)));
+	int n[2] = { fftH, fftW };
+	// cufft functions seem to consume 28MB at its initial function call (maybe for initialization... don't know the detail, but cannot release the 28MB even after cufftDestroy)
+	if (!in_param->m_fftPlanLCNFwd) {
+		print_and_log("in_param->m_fftPlanLCNFwd is NULL\n");
+		fftPlanLCNFwd = new cufftHandle;
+		cufftSafeCall(cufftPlan2d(fftPlanLCNFwd, fftH, fftW, CUFFT_R2C));
+	}
+	else {
+		print_and_log("in_param->m_fftPlanLCNFwd is not NULL\n");
+		fftPlanLCNFwd = in_param->m_fftPlanLCNFwd;
+	}
+	if (!in_param->m_fftPlanLCNManyFwd) {
+		print_and_log("in_param->m_fftPlanLCNManyFwd is NULL\n");
+		fftPlanLCNManyFwd = new cufftHandle;
+		cufftSafeCall(cufftPlanMany(fftPlanLCNManyFwd, 2, n, NULL, 1, 0, NULL, 1, 0, CUFFT_R2C, dim[2] * in_param->m_NumProjectionSets));  // For forward FFT
+	}
+	else {
+		print_and_log("in_param->m_fftPlanLCNManyFwd is not NULL\n");
+		fftPlanLCNManyFwd = in_param->m_fftPlanLCNManyFwd;
+	}
+	if (!in_param->m_fftPlanLCNManyInv) {
+		print_and_log("in_param->m_fftPlanLCNManyInv is NULL\n");
+		fftPlanLCNManyInv = new cufftHandle;
+		cufftSafeCall(cufftPlanMany(fftPlanLCNManyInv, 2, n, NULL, 1, 0, NULL, 1, 0, CUFFT_C2R, dim[2] * in_param->m_NumProjectionSets));  // For forward FFT
+	}
+	else {
+		print_and_log("in_param->m_fftPlanLCNManyInv is not NULL\n");
+		fftPlanLCNManyInv = in_param->m_fftPlanLCNManyInv;
+	}
+	RegToolsThread_MemGetInfo(in_param->m_FreeMem, in_param->m_TotalMem);
+	print_and_log("RegToolsThread_LocalContrastNormalization(GPU_ID:%d), after 1, available memory: %f MB\n", in_param->m_CudaDeviceID_Sequential, (float)in_param->m_FreeMem / 1024.0f / 1024.0f);
+
+	computeGaussianKernelSpectrum(LCN_sigma, dim[0], dim[1], 0, d_LCN_gaussian_kernel, *fftPlanLCNFwd);
+	computeLocalContrastNormalizationGPUMulti(d_ProjectionResult, dim, in_param->m_NumProjectionSets, d_centered_images, NULL, d_ProjectionResult, LCN_sigma
+		, d_LCN_gaussian_kernel, d_temp_padded, d_temp_spectrum, *fftPlanLCNManyFwd, *fftPlanLCNManyInv);
+//	computeLocalContrastNormalizationGPUMulti(d_ProjectionResult, dim, in_param->m_NumProjectionSets, d_centered_images, d_std_images, d_ProjectionResult, LCN_sigma
+//		, d_LCN_gaussian_kernel, d_temp_padded, d_temp_spectrum, *(fftPlanLCNManyFwd), *(fftPlanLCNManyInv));
+	//cutilSafeCall(cudaMemcpy(d_ProjectionResult, d_centered_images, dim[0] * dim[1] * dim[2] * in_param->m_NumProjectionSets * sizeof(float), cudaMemcpyDeviceToDevice));
+
+	RegToolsThread_MemGetInfo(in_param->m_FreeMem, in_param->m_TotalMem);
+	print_and_log("RegToolsThread_LocalContrastNormalization(), after 2, available memory: %f MB\n", (float)in_param->m_FreeMem / 1024.0f / 1024.0f);
+
+	cutilSafeCall(cudaFree(d_LCN_gaussian_kernel));
+	if (!in_param->m_fftPlanLCNFwd) {
+		cufftSafeCall(cufftDestroy(*(fftPlanLCNFwd)));	   delete fftPlanLCNFwd; fftPlanLCNFwd = NULL;
+	}
+	if (!in_param->m_fftPlanLCNManyFwd) {
+		cufftSafeCall(cufftDestroy(*(fftPlanLCNManyFwd))); delete fftPlanLCNManyFwd; fftPlanLCNManyFwd = NULL;
+	}
+	if (!in_param->m_fftPlanLCNManyInv) {
+		cufftSafeCall(cufftDestroy(*(fftPlanLCNManyInv))); delete fftPlanLCNManyInv; fftPlanLCNManyInv = NULL;
+	}
+	cutilSafeCall(cudaFree(d_centered_images));
+//	cutilSafeCall(cudaFree(d_std_images));
+	cutilSafeCall(cudaFree(d_temp_padded));
+	cutilSafeCall(cudaFree(d_temp_spectrum));
+	RegToolsThread_MemGetInfo(in_param->m_FreeMem, in_param->m_TotalMem);
+	print_and_log("RegToolsThread_LocalContrastNormalization(), after 3, available memory: %f MB\n", (float)in_param->m_FreeMem / 1024.0f / 1024.0f);
 }
 
 void RegTools::RegToolsThread_CopyHostInitProjectionToDevice(RegToolsThreadParam *in_param)

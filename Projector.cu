@@ -184,7 +184,24 @@ struct normalize_crop
     float norm = (x-minVal)/(maxVal-minVal);
     return norm < 0.0f ? 0.0f : (norm > 1.0f ? 1.0f : norm);
   }  
-};  
+};
+
+struct sqrt_op
+{
+	__host__ __device__
+	float operator()(const float& x) const {
+		return x < 0.0f ? 0.0f : sqrt(x);
+	}
+};
+
+struct checked_div
+{
+	__host__ __device__
+		float operator()(const float& numerator, const float& denominator) const {
+		return denominator == 0.0f ? 0.0f : numerator/denominator;
+	}
+};
+
 
 extern "C" void NormalizeData(float *d_data, int size, float h_normMax, float h_normMin)
 {
@@ -214,6 +231,20 @@ extern "C" void MultData(float *d_data1, float *d_data2, float *d_out, int size)
   // out <- data1 * data2
   thrust::transform( thrust::device_ptr<float>(d_data1), thrust::device_ptr<float>(d_data1) + size, 
                      thrust::device_ptr<float>(d_data2), thrust::device_ptr<float>(d_out), thrust::multiplies<float>());
+}
+
+extern "C" void DivData(float *d_numerator, float *d_denominator, float *d_out, int size)
+{
+	// out <- d_numerator / d_denominator
+	thrust::transform(thrust::device_ptr<float>(d_numerator), thrust::device_ptr<float>(d_numerator) + size,
+		thrust::device_ptr<float>(d_denominator), thrust::device_ptr<float>(d_out), checked_div());
+}
+
+extern "C" void SqrtData(float *d_data, float *d_out, int size)
+{
+	// out <- sqrt(d_data)
+	thrust::transform(thrust::device_ptr<float>(d_data), thrust::device_ptr<float>(d_data) + size,
+		thrust::device_ptr<float>(d_out), sqrt_op());
 }
 
 extern "C" void randn_CURAND(curandGenerator_t generator, float *d_data, int size)
@@ -363,6 +394,16 @@ extern "C" void launch_RayCastingProjector(float *d_projection_local, dim3 grid,
 #endif
 
   RayCastingProjection<<< grid, block, 0 >>> (d_projection_local);
+}
+
+extern "C" void launch_LocalContrastNormalization(float *d_projection_local, int number_of_projections_in_one_set, dim3 grid, dim3 block)
+{
+#if defined RegTools_VERBOSE_MESSAGE
+	print_all_constant_vars();
+	print_and_log("start local contrast normalization\n");
+#endif
+
+	LocalContrastNormalization << < grid, block, 0 >> > (d_projection_local, number_of_projections_in_one_set);
 }
 
 __device__ Ray computeNormalizedRay( const float x_pix, const float y_pix, const int p )
@@ -706,6 +747,24 @@ __global__ void SiddonProjection(float* d_projection, size_t pitch, int *d_rando
     }
   }
     */
+}
+
+__global__ void LocalContrastNormalization(float* d_projection, int number_of_projections_in_one_set)
+{
+	// ray-driven simple linear interpolation-based forward projection
+	unsigned int x, y, z;
+#if defined(RegTools_ENABLE_CUDA20_CAPABILITY_FEATURES)
+	x = blockIdx.x * blockDim.x + threadIdx.x;  // locality-oriented
+	y = blockIdx.y * blockDim.y + threadIdx.y;
+	z = blockIdx.z * blockDim.z + threadIdx.z;
+	if (x >= c_ImageWidth_i || y >= c_ImageHeight_i || z >= c_ProjectionBlockSize_i) return; // this doesn't create divergent branches if number of pixels is multiple of warpSize
+#else
+	if (!getPixelIndex(x, y, z)) return;                                               // this doesn't create divergent branches if number of pixels is multiple of warpSize
+#endif
+	Ray ray = computeNormalizedRay(((float)x) + 0.5f, ((float)y) + 0.5f, z);
+	float tnear, tfar, RPL = 0.0f;
+
+	d_projection[z*c_ImageWidth_i*c_ImageHeight_i + y*c_ImageWidth_i + x] = 5.0;    // access to global memory
 }
 
 #include "Interpolator.cuh"

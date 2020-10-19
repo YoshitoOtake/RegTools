@@ -80,6 +80,7 @@ enum {  ProcessingMode_ForwardProjection = 0,
         ProcessingMode_GetGPUProjection,
         ProcessingMode_CopyHostInitProjectionToDevice,
         ProcessingMode_ClearDeviceInitProjection,
+		ProcessingMode_LCNCompuatationPlan,
         ProcessingMode_DoNothing
       };  // processing mode
 
@@ -121,6 +122,7 @@ struct RegToolsThreadParam {
   unsigned int m_NumVolumes;
   unsigned int m_TransferBlockSize;
   float m_StepSize;
+  float m_LCN_sigma;
 
   CUTThread m_ProjectorDataReadyEvent, m_ProjectorCompletedEvent;     // TODO: Linux compatibility
   bool m_ThreadCompleted;
@@ -194,6 +196,12 @@ struct RegToolsThreadParam {
   int m_NumViews;
   float* d_ProjectionsInit;
   size_t d_ProjectionsInit_capacity_bytes;
+
+  // for LCN computation
+  cufftHandle *m_fftPlanLCNFwd;
+  cufftHandle *m_fftPlanLCNManyFwd;
+  cufftHandle *m_fftPlanLCNManyInv;
+  LCN_computation_plan *m_LCNComputationPlan;
 };
 
 struct ProjectionParametersSetting {
@@ -255,6 +263,7 @@ public:
 
   bool SetStepSize(float step_size);
   bool GetStepSize(float *step_size);
+  bool SetLCNSigma(float LCN_sigma);
   void SetNormalizeMaxMin(float norm_max, float norm_min){ m_NormalizeMax = norm_max; m_NormalizeMin = norm_min; }
   int GetProjectionWidth(void);
   int GetProjectionHeight(void);
@@ -277,7 +286,7 @@ public:
   int ForwardProjection_with3x4ProjectionMatrices(ProjectionResult &result, const int plan_id, const double *pm_3x4);
   int ForwardProjection_withPlan(ProjectionResult &result, const int plan_id);
   int ForwardProjection_withPlan(ProjectionResult &result, const int plan_id, int numGlobals, const double *transformations_global, int numView
-    , int numLocalTrans, const double *transformations_local, const int memory_store_mode = MemoryStoreMode_Replace);
+		 , int numLocalTrans, const double *transformations_local, const int memory_store_mode = MemoryStoreMode_Replace, const int LCN_plan_ID = -1);
   int Interpolation_withPlan(struct ProjectionResult &result, int plan_id, const float *transforms, const int num_transform_element, int num_transform, const int type, const int order, const float bicubic_a, 
                               const float back_ground, float *volume_center, const int isRGBA = 0, float *color_map = NULL, int num_color_map = 0, int label_overlay_mode = 0);
   int ApplyDeformationField(struct ProjectionResult &result, int target_volume_id, int *warps_tex, int num_dims, int type, int order, float bicubic_a, float back_ground, 
@@ -312,12 +321,14 @@ public:
   static void RegToolsThread_RunInterpolator(RegToolsThreadParam *in_param, float *d_ProjectionResult);
   static void RegToolsThread_ComputeLinearCombination(RegToolsThreadParam *in_param);
   static void RegToolsThread_GetGPUProjection(RegToolsThreadParam *in_param);
+  static void RegToolsThread_LocalContrastNormalization(RegToolsThreadParam *in_param, float *d_Projections, int LCN_sigma);
   static int RegToolsThread_MemGetInfo(size_t &free, size_t &total);
   static void ConstructProjectionParameterArray(int index, struct ProjectionParameters *projectionParam
                                                   , double *w_v_col /* T_World_Volume */, double *volume_size, int u_pix, int v_pix
                                                   , float *h_PreComputedMatrix_array);
   static void ComputeBoxProjection(double *pm, double *box_center, double *box_size, double *bsquare_min, double *bsquare_max);
   static void RegToolsThread_CopyHostInitProjectionToDevice(RegToolsThreadParam *in_param);
+  static void RegToolsThread_LCNComputationPlan(RegToolsThreadParam *in_param);
   static void RegToolsThread_ClearDeviceInitProjection(RegToolsThreadParam *in_param);
 
   double GPUmemCheck(const char* message, int threadID = 0);
@@ -332,11 +343,13 @@ public:
   int GetSimilarityMeasureComputationPlanImageInfo(int plan_id, int GPU_ID, int *image_dim, double *normalization_factor = NULL);
   int GetSimilarityMeasureComputationPlanImages(int plan_id, int GPU_ID, float *images, int image_type, int frame_no = 0);
   int DeleteSimilarityMeasureComputationPlan(int plan_id);
+  int DeleteLCNComputationPlan(int plan_id);
   void ComputeNumberOfProjectionForEachGPU(RegToolsThreadParam *threadParams, int numThreads, int totalProj, int *num_projs, int *start_projs = NULL);
   void ComputeSimilarityMeasure(int plan_id, int similarity_type, int numImageSet, double *sm, float *elapsed_time = NULL);
   void ComputeSimilarityMeasure(int plan_id1, int plan_id2, int similarity_type, int numImageSet, double *sm, float *elapsed_time = NULL);
   int ComputeBoxProjectionBoundingSquare(int *projected_square_left_bottom, int *projected_size, int *in_out, double *box_center, double *box_size, int margin);
   int CropAllProjections(int *left_bottom /* numbefOfProjections*2 element array */, int *crop_size /* 2 element array */);
+  int CreateLCNComputationPlan(struct LCN_computation_plan *plan);
 
   // Matrix computation
   static double Determinant3x3d(const double *in);
@@ -388,6 +401,7 @@ protected:
   int m_TransferBlockSize;
   int m_MainCudaDevice;
   float m_StepSize;   // step size for simple linear interpolation-based forward projector
+//  float m_LCN_sigma;
   double m_VolumeTransform_col[16]; // transformation between World coordinate and the volume coordinate (column-major order)
   float m_NormalizeMin, m_NormalizeMax; // for normalization of resulted images (do nothing if min>=max)
   int m_ProjectorMode;
@@ -406,6 +420,10 @@ protected:
 
   // for Similarity Measure Computation plan (for multi-GPU environment, the same ID is used for all plan. each plan has cudaDeviceID to distinguish each other)
   std::multimap<int, SimilarityMeasureComputationPlan*> m_SimilarityMeasureComputationPlans;
+
+  // for LCN computation plan
+  std::map<int, LCN_computation_plan*> m_LCNComputationPlans;
+
 
   // for ray-casting
   int m_RayCastingLOD;

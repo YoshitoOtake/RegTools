@@ -65,6 +65,15 @@ struct VolumePlan_cudaArray
   typedef unsigned int cufftHandle;
 #endif
 
+struct LCN_computation_plan
+{
+	int ProjectionDim[3];
+	int NumProjectionSets;
+	double LCN_sigma;
+	bool create_flag;
+	cufftHandle *fftPlanLCNFwd, *fftPlanLCNManyFwd, *fftPlanLCNManyInv;
+};
+
 struct SimilarityMeasureComputationPlan
 {
   int m_CudaDeviceID_Sequential;

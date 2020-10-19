@@ -38,6 +38,7 @@ RegTools::RegTools(void)
 //  m_SubSamplingArray = NULL;
   m_TransferBlockSize = DEFAULT_TRANSFER_BLOCK_SIZE;
   m_StepSize = 1.0f;
+//  m_LCN_sigma = 0.0f;
   m_CurrentProjectionParametersSettingID = -1;
   m_ProjectorMode = ProjectorMode_LinearInterpolation;
 
@@ -193,6 +194,12 @@ RegTools::~RegTools()
   while(m_ProjectionParametersSetting.size() > 0)
   {
     DeleteProjectionParametersArray(m_ProjectionParametersSetting.begin()->first);
+  }
+
+  // delete all LCN computation plans
+  while (m_LCNComputationPlans.size() > 0)
+  {
+	DeleteLCNComputationPlan(m_LCNComputationPlans.begin()->first);
   }
 
   // clean up PBO
@@ -453,6 +460,26 @@ bool RegTools::DeleteProjectionParametersArray(int id)
 #endif
   m_ProjectionParametersSetting.erase(it);
   return true;
+}
+
+int RegTools::DeleteLCNComputationPlan(int plan_id)
+{
+	std::map<int, LCN_computation_plan*>::iterator it = m_LCNComputationPlans.find(plan_id);
+	if (it != m_LCNComputationPlans.end()) {
+		// delete LCN_computation_plan and erase the element from map
+		if (m_NumRegToolsThreads<1)  return -1;
+		for (int i = 0; i<m_NumRegToolsThreads; i++) {
+			m_RegToolsThreadParams[i].m_ProcessingMode = ProcessingMode_LCNCompuatationPlan;
+			it->second->create_flag = false;
+			m_RegToolsThreadParams[i].m_LCNComputationPlan = it->second;
+		}
+		RunRegToolsThreads();     // delete device memory
+		delete it->second->fftPlanLCNFwd;
+		delete it->second->fftPlanLCNManyFwd;
+		delete it->second->fftPlanLCNManyInv;
+		m_LCNComputationPlans.erase(it);
+	}
+	return true;
 }
 
 int RegTools::InitializeProjectionParametersStruct(struct ProjectionParameters *projectionParams)
@@ -792,6 +819,12 @@ bool RegTools::GetStepSize(float *step_size)
 {
   *step_size = m_StepSize;
   return true;
+}
+
+bool RegTools::SetLCNSigma(float LCN_sigma)
+{
+//	m_LCN_sigma = LCN_sigma;
+	return true;
 }
 
 int RegTools::SetProjectionDim(int width, int height)
@@ -1169,11 +1202,11 @@ int RegTools::ForwardProjection_withPlan(ProjectionResult &result, const int pla
 {
   // forward projection with plan using default settings (no local & global transform) with "1" view
   double I[16] = {1, 0, 0, 0,   0, 1, 0, 0,   0, 0, 1, 0,   0, 0, 0, 1};  // identity transformation
-  return ForwardProjection_withPlan(result, plan_id, 1, I, 1 /* numView is 1 !!! */, 1, I);
+  return ForwardProjection_withPlan(result, plan_id, 1, I, 1 /* numView is 1 !!! */, 1, I, -1);
 }
 
 int RegTools::ForwardProjection_withPlan(ProjectionResult &result, const int plan_id, int numGlobals, const double *transformations_global, int numView
-                                           , int numLocalTrans, const double *transformations_local, const int memory_store_mode)
+                                           , int numLocalTrans, const double *transformations_local, const int memory_store_mode, const int LCN_plan_ID)
 {
 #if defined RegTools_VERBOSE_MESSAGE
   print_and_log("RegTools - ForwardProjection, dim: proj(%d, %d, %d, %d), vol(%d, %d, %d), numGlobals: %d, numView: %d, numLocalTrans: %d\n"
@@ -1247,18 +1280,20 @@ int RegTools::ForwardProjection_withPlan(ProjectionResult &result, const int pla
         }
         for(int j=0,start_proj=0,nProj=0;j<numberOfRunningThreads;j++, start_proj+=nProj){
           // calculate number of projection that is computed on this device
-          nProj = ceil((double)numGlobals * m_RegToolsThreadParams[j].m_CudaDeviceLoad) * numView; // Note: this is slightly different from ForwardProjecton()
+//          nProj = ceil((double)numGlobals * m_RegToolsThreadParams[j].m_CudaDeviceLoad) * numView; // Note: this is slightly different from ForwardProjecton()
+		  nProj = ceil((double)numGlobals * m_RegToolsThreadParams[j].m_CudaDeviceLoad * numView); // Note: this is slightly different from ForwardProjecton()
           if((start_proj+nProj)>geom->second->m_NumEnabledProjections)  nProj = geom->second->m_NumEnabledProjections-start_proj;
-//          print_and_log("%d forward projections on device %d\n", nProj, j);
+		  //print_and_log("numGlobals=%d, numLocalTrans=%d, device load=%f, numView=%d, nProj=%d\n", numGlobals, numLocalTrans, m_RegToolsThreadParams[j].m_CudaDeviceLoad, numView, nProj);
+          //print_and_log("%d forward projections on device %d\n", nProj, j);
 
-          if(nProj==0)  m_RegToolsThreadParams[j].m_ProcessingMode = ProcessingMode_DoNothing;
+		  if(nProj==0)  m_RegToolsThreadParams[j].m_ProcessingMode = ProcessingMode_DoNothing;
           else {
             m_RegToolsThreadParams[j].m_ProcessingMode = ProcessingMode_ForwardProjection;
             m_RegToolsThreadParams[j].m_Volume = NULL;
             m_RegToolsThreadParams[j].m_VolumePlan_cudaArray = it->second;
             m_RegToolsThreadParams[j].m_VolumePlan_cudaArray_out = FindVolumePlan(result.dDataID);
             m_RegToolsThreadParams[j].m_Projections = result.Data;
-			      m_RegToolsThreadParams[j].m_NumViews = numView;
+			m_RegToolsThreadParams[j].m_NumViews = numView;
             // TODO: handle device init
             if(m_RegToolsThreadParams[j].m_Projections) m_RegToolsThreadParams[j].m_Projections += (geom->second->m_ProjectionWidth*geom->second->m_ProjectionHeight*start_proj);
             m_RegToolsThreadParams[j].m_ElapsedTime = result.projectionTime;
@@ -1272,6 +1307,17 @@ int RegTools::ForwardProjection_withPlan(ProjectionResult &result, const int pla
             m_RegToolsThreadParams[j].m_NumEnabledProjections = nProj;
             m_RegToolsThreadParams[j].m_MemoryStoreMode = (i==0) ? memory_store_mode : MemoryStoreMode_Additive;   // 'additive' mode, the interpolation result is added to the existing value
             //print_and_log("RegTools::ForwardProjection_withPlan(), i=%d, j=%d, m_RegToolsThreadParams[j].m_MemoryStoreMode=%d\n", i, j, m_RegToolsThreadParams[j].m_MemoryStoreMode);
+			
+/*			std::map<int, LCN_computation_plan*>::const_iterator lcn_plan = m_LCNComputationPlans.find(LCN_plan_ID);
+			if (lcn_plan != m_LCNComputationPlans.end()) {
+				print_and_log("LCN plan found\n");
+				m_RegToolsThreadParams[j].m_fftPlanLCNFwd = &lcn_plan->second->fftPlanLCNFwd[j];
+				m_RegToolsThreadParams[j].m_fftPlanLCNManyFwd = &lcn_plan->second->fftPlanLCNManyFwd[j];
+				m_RegToolsThreadParams[j].m_fftPlanLCNManyInv = &lcn_plan->second->fftPlanLCNManyInv[j];
+				m_RegToolsThreadParams[j].m_LCN_sigma = lcn_plan->second->LCN_sigma;
+			} 
+			else print_and_log("LCN plan NOT found\n");
+*/
 		  }
         }
 //        for(int j=0;j<m_RegToolsThreadParams[0].m_NumEnabledProjections;j++)
@@ -1593,6 +1639,30 @@ int RegTools::CreateVolumePlan_cudaArray(struct VolumePlan_cudaArray *plan, bool
   return id;  // return the ID for the created VolumePlan_cudaArray
 }
 
+int RegTools::CreateLCNComputationPlan(struct LCN_computation_plan *plan)
+{
+	LCN_computation_plan *new_plan = new LCN_computation_plan;
+	for (int i = 0; i < 3; i++) new_plan->ProjectionDim[i] = plan->ProjectionDim[i];
+	new_plan->NumProjectionSets = plan->NumProjectionSets;
+	new_plan->LCN_sigma = plan->LCN_sigma;
+	new_plan->fftPlanLCNFwd = new cufftHandle[m_NumRegToolsThreads];
+	new_plan->fftPlanLCNManyFwd = new cufftHandle[m_NumRegToolsThreads];
+	new_plan->fftPlanLCNManyInv = new cufftHandle[m_NumRegToolsThreads];
+	new_plan->create_flag = true;
+	// find smallest 'un-used' id
+	int id = 0;
+	while (m_LCNComputationPlans.find(id) != m_LCNComputationPlans.end()) id++;
+
+	for (int i = 0; i<m_NumRegToolsThreads; i++) {
+		m_RegToolsThreadParams[i].m_ProcessingMode = ProcessingMode_LCNCompuatationPlan;
+		m_RegToolsThreadParams[i].m_LCNComputationPlan = new_plan;
+	}
+	RunRegToolsThreads();
+	m_LCNComputationPlans.insert(std::pair<int, LCN_computation_plan*>(id, new_plan));
+
+	return id;  // return the ID for the created LCN_computation_plan
+}
+
 int RegTools::GetVolumePlan_cudaArrayVolumeInfo(int plan_id, int *volume_dim, double *voxel_size, int *numVolumes)
 {
   std::map<int, VolumePlan_cudaArray*>::iterator it = m_VolumePlan_cudaArrays.find(plan_id);
@@ -1912,6 +1982,9 @@ void RegTools::ComputeSimilarityMeasure(int plan_id, int similarity_type, int nu
 
   for(std::multimap<int, SimilarityMeasureComputationPlan*>::iterator it=ret.first;it != ret.second;it++){
     int dev = it->second->m_CudaDeviceID_Sequential;
+//    print_and_log("RegTools::ComputeSimilarityMeasure, dim_Plan: (%d,%d,%d), dim_Projections: (%d,%d,%d), number of image set: %d\n", 
+//    it->second->ImageDim[0], it->second->ImageDim[1], it->second->ImageDim[2], 
+//    m_RegToolsThreadParams[dev].m_ProjectionWidth, m_RegToolsThreadParams[dev].m_ProjectionHeight, m_RegToolsThreadParams[dev].m_NumEnabledProjections, numImageSet);
     if(num_image_sets[dev]==0){
       m_RegToolsThreadParams[dev].m_ProcessingMode = ProcessingMode_DoNothing;
     } else {
@@ -1919,15 +1992,12 @@ void RegTools::ComputeSimilarityMeasure(int plan_id, int similarity_type, int nu
       m_RegToolsThreadParams[dev].m_SimilarityMeasureComputationPlan = it->second;
       m_RegToolsThreadParams[dev].m_SimilarityMeasureComputationPlan2 = NULL;
       m_RegToolsThreadParams[dev].m_SimilarityMeasureComputationPlan->SimilarityMeasureType = similarity_type;
-      //print_and_log("RegTools::ComputeSimilarityMeasure, dim_Plan: (%d,%d,%d), dim_Projections: (%d,%d,%d), number of image set: %d\n", 
-      //  it->second->ImageDim[0], it->second->ImageDim[1], it->second->ImageDim[2], 
-      //  m_RegToolsThreadParams[0].m_ProjectionWidth, m_RegToolsThreadParams[0].m_ProjectionHeight, m_RegToolsThreadParams[0].m_NumEnabledProjections, numImageSet);
       m_RegToolsThreadParams[dev].m_SimilarityMeasureComputationImageOffset = 0;
       m_RegToolsThreadParams[dev].m_SimilarityMeasure_NumberOfImageSet = num_image_sets[dev];
       m_RegToolsThreadParams[dev].m_SimilarityMeasureComputationPlan->SimilarityMeasure = sm + start_projs[dev]; //new double[num_image_sets[dev]];
       m_RegToolsThreadParams[dev].m_ElapsedTime = elapsed_time;
     }
-    //print_and_log("ComputeSimilarityMeasure(): device %d, %d projection sets\n", dev, num_image_sets[dev]);
+//    print_and_log("ComputeSimilarityMeasure(): device %d, %d projection sets\n", dev, num_image_sets[dev]);
   }
   RunRegToolsThreads();
 
@@ -2018,6 +2088,7 @@ void RegTools::PrepareForRegToolsThread(RegToolsThreadParam *param)
   param->m_VoxelSize_mm = m_VoxelSize_mm;
   param->m_NumVolumes = m_NumVolumes;
   param->m_StepSize = m_StepSize;
+//  param->m_LCN_sigma = m_LCN_sigma;
   param->m_NormalizeMax = m_NormalizeMax;
   param->m_NormalizeMin = m_NormalizeMin;
   param->m_World_Volume_col = m_VolumeTransform_col;
@@ -2035,6 +2106,11 @@ void RegTools::PrepareForRegToolsThread(RegToolsThreadParam *param)
 
   param->m_Interpolator_num_scattered_pnts = 0;
 //  param->m_VolumePlan_cudaArray_warpX = param->m_VolumePlan_cudaArray_warpY = param->m_VolumePlan_cudaArray_warpZ = NULL;
+
+  param->m_fftPlanLCNFwd = NULL;
+  param->m_fftPlanLCNManyFwd = NULL;
+  param->m_fftPlanLCNManyInv = NULL;
+  param->m_LCN_sigma = 0;
 }
 
 int RegTools::CMAESPopulation(int arz_ID, int arx_ID, int arxvalid_ID, int xmean_ID, int diagD_ID, int lbounds_ID, int ubounds_ID)

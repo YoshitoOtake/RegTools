@@ -24,7 +24,7 @@ extern "C" value_type gauss(value_type x, value_type sigma);
 extern "C" value_type dgauss(value_type x, value_type sigma);
 extern "C" unsigned int getKernelSize(float sigma);
 
-extern "C" bool zeromean_stddivide_Images(float *d_images, float *d_temp, int image_size, int num_image_sets, cublasHandle_t cublasHandle, float *d_mean, float *d_OneVector, float h_NormalizationFactor, float *d_mask_weight);
+extern "C" bool zeromean_stddivide_Images(float *d_images, float *d_temp, int image_size, int num_image_sets, cublasHandle_t cublasHandle, float *d_mean, float *d_OneVector, float h_NormalizationFactor, float *d_mask_weight, float *d_floating_mask = NULL);
 extern "C" bool computeNormalizedCrossCorrelation_Pixels(float *d_images1_zeromean_multi, float *d_images2_zeromean_single, int image_size, int num_image_sets, cublasHandle_t cublasHandle);
 extern "C" bool computeNormalizedCrossCorrelation_Sum(float *d_images1_multi, float *d_images2_multi, float *d_output_multi, double *NCC, int image_size, int num_image_sets
                                                       , cublasHandle_t cublasHandle, float *d_temp_NCC, float *h_temp_NCC, float *d_OneVector);
@@ -48,6 +48,9 @@ extern "C" bool computeGaussianGradientGPUMulti(float *d_input_images, int *dim,
 extern "C" bool computeGaussianGPUMulti(float *d_input_images, int *dim, int num_image_sets, float *d_output_images1, float *d_output_images2, float sigma
                                            , fComplex *d_x_kernel_spectrum,float *temp_padded, fComplex *temp_spectrum
                                            , cufftHandle fftPlanManyFwd, cufftHandle fftPlanManyInv);
+extern "C" bool computeLocalContrastNormalizationGPUMulti(float *d_input_images, int *dim, int num_image_sets, float *d_output_centered, float *d_output_std, float *d_output, float sigma
+											, fComplex *d_x_kernel_spectrum, float *temp_padded, fComplex *temp_spectrum
+											, cufftHandle fftPlanManyFwd, cufftHandle fftPlanManyInv);
 extern "C" bool computeCovarianceGPUMulti(float *d_input_images1, float *d_mu1, float *d_input_images2, float *d_mu2, int *dim, int num_image_sets, float *d_output_images, float sigma
                                            , fComplex *d_kernel_spectrum, float *temp_padded, fComplex *temp_spectrum
                                            , cufftHandle fftPlanManyFwd, cufftHandle fftPlanManyInv );
@@ -68,6 +71,10 @@ __global__ void computeSSIM_kernel(float *d_grad1X, float *d_grad1Y, float *d_gr
                                    , float *d_mask_weight, int num_image_sets, float C1, float C2);
 __global__ void computeCovariance_kernel(float *d_img1, float *d_mu1, float *d_img2, float *d_mu2, float *d_output, int image_size, int num_image_sets);
 __global__ void computeImageSum_kernel(float *d_image, int image_size, int num_image_sets, float *d_weight, float *d_sum);
+__global__ void apply_floating_mask_kernel(float *d_images, float *d_floating_mask, int size);
+__global__ void square_functor_kernel(float *d_input, float *d_output, int size);
+__global__ void sqrt_inverse_functor_kernel(float *d_input, float *d_output, int size);
+__global__ void subtract_square_functor_kernel(float *d_input1, float *d_input2, float *d_output, int size);
 extern "C" void normalizeImages(float *d_images, int size, float norm_max, float norm_min);
 extern "C" void maskImages( float *d_images, float *d_mask_weight, int size, int num_image_sets, cublasHandle_t cublasHandle );
 extern "C" int countZeroPixels(float *d_image, int image_size);
