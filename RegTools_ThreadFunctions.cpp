@@ -1091,7 +1091,7 @@ void RegTools::RegToolsThread_main(RegToolsThreadParam *in_param)
 */
 #endif
 
-    int *d_ZeroPixelCount;
+    int *d_ZeroPixelCount = NULL;
     if(in_param->m_CountNonIntersectedPixel){
       cutilSafeCall( cudaMalloc((void**)&d_ZeroPixelCount, block_size*sizeof(int)) );
       //print_and_log("cudaMalloc(d_ZeroPixelCount, %d)\n", block_size);
