@@ -912,7 +912,8 @@ while isempty(stopflag)
       end
       
       % --- start ---- added by YO (@2012/10/10)
-      if(size(varargin,2)==2 && ~isempty(varargin{2}.cmaes_inclusionTest))
+	  if(0)	% disabled inclusionTest feature by YO (@2021/9/14)
+      % if(size(varargin,2)==2 && ~isempty(varargin{2}.cmaes_inclusionTest))
           % check inclusion criteria and resample until all points satisfies it
           isInclude = feval(varargin{2}.cmaes_inclusionTest, arxvalid, varargin{:});
           for k=find(~isInclude'), 
