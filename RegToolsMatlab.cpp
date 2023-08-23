@@ -315,6 +315,16 @@ int GetDifferentVolumePerProjectionSet(struct RegToolsInstance instance, int *di
   return reinterpret_cast<RegTools*>(instance.InstancePtr)->GetDifferentVolumePerProjectionSet(different_volume_per_projection_set);
 }
 
+int SetDepthMapBack(struct RegToolsInstance instance, int depth_map_back)
+{
+  return reinterpret_cast<RegTools*>(instance.InstancePtr)->SetDepthMapBack(depth_map_back);
+}
+
+int GetDepthMapBack(struct RegToolsInstance instance, int* depth_map_back)
+{
+  return reinterpret_cast<RegTools*>(instance.InstancePtr)->GetDepthMapBack(depth_map_back);
+}
+
 int SetProjectionDim(struct RegToolsInstance instance, int width, int height)
 {
   return reinterpret_cast<RegTools*>(instance.InstancePtr)->SetProjectionDim(width, height);

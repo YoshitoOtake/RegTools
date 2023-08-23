@@ -565,6 +565,7 @@ void RegTools::RegToolsThread_CopyVarToCudaMemory(RegToolsThreadParam *in_param)
   copyRayCastingDistanceFalloffCoefficient( in_param->m_RayCastingDistanceFalloffCoefficient );
   copyCountNonIntersectedPixel( in_param->m_CountNonIntersectedPixel );
   copyDifferentVolumePerProjectionSet( in_param->m_DifferentVolumePerProjectionSet );
+  copyDepthMapBack(in_param->m_DepthMapBack);
 }
 
 void RegTools::RegToolsThread_RunInterpolator(RegToolsThreadParam *in_param, float *d_Result)
@@ -1107,6 +1108,8 @@ void RegTools::RegToolsThread_main(RegToolsThreadParam *in_param)
       launch_SiddonProjector(d_ProjectionResult, in_param->pitch, grid, block, NULL); //, d_RandomSequence);
     else if(in_param->m_ProjectorMode == ProjectorMode_RayCasting)
       launch_RayCastingProjector(d_ProjectionResult, grid, block);
+    else if (in_param->m_ProjectorMode == ProjectorMode_DepthMap)
+      launch_DepthMapProjector(d_ProjectionResult, grid, block);
     else if(in_param->m_ProjectorMode == ProjectorMode_LinearInterpolationDeformable)
       launch_LinearInterpolationDeformableProjector(d_ProjectionResult, d_ZeroPixelCount, in_param->m_NumEnabledProjections/in_param->m_NumProjectionSets, grid, block);
 

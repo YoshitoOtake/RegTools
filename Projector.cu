@@ -38,6 +38,7 @@ __constant__ float c_RayCastingThreshold;
 __constant__ float c_RayCastingDistanceFalloffCoefficient;
 __constant__ bool c_CountNonIntersectedPixel;
 __constant__ bool c_DifferentVolumePerProjectionSet;
+__constant__ bool c_DepthMapBack; // 0: Front depth map, 1: Back depth map
 
 // device texture memory
 // need to define this in the source file, since syntax is not compatible with SWIG
@@ -139,6 +140,12 @@ extern "C" void copyDifferentVolumePerProjectionSet(bool different_volume_per_pr
 {
   cutilSafeCall( cudaMemcpyToSymbol(c_DifferentVolumePerProjectionSet, &different_volume_per_projection_set, sizeof(bool)) );
 //  print_and_log("copyDifferentVolumePerProjectionSet(), %d\n", different_volume_per_projection_set);
+}
+
+extern "C" void copyDepthMapBack(bool depth_map_back)
+{
+  cutilSafeCall(cudaMemcpyToSymbol(c_DepthMapBack, &depth_map_back, sizeof(bool)));
+  //  print_and_log("copyDepthMapBack(), %d\n", depth_map_back);
 }
 
 extern "C" void print_all_constant_vars(void)
@@ -396,6 +403,16 @@ extern "C" void launch_RayCastingProjector(float *d_projection_local, dim3 grid,
   RayCastingProjection<<< grid, block, 0 >>> (d_projection_local);
 }
 
+extern "C" void launch_DepthMapProjector(float* d_projection_local, dim3 grid, dim3 block)
+{
+#if defined RegTools_VERBOSE_MESSAGE
+  print_all_constant_vars();
+  print_and_log("start ray casting projection\n");
+#endif
+
+  DepthMapProjection << < grid, block, 0 >> > (d_projection_local);
+}
+
 extern "C" void launch_LocalContrastNormalization(float *d_projection_local, int number_of_projections_in_one_set, dim3 grid, dim3 block)
 {
 #if defined RegTools_VERBOSE_MESSAGE
@@ -562,7 +579,8 @@ __global__ void RayCastingProjection(float* d_projection)
       }
       float offset_ratio = (cur_val-c_RayCastingThreshold)/(cur_val-prev_val);// find the threshold surface by linear interpolation between previous and current intensty
       cur = cur - half_step * offset_ratio;                                   // surface point
-      float R = tnear_mm + travelled_length_mm - c_StepSize_mm*offset_ratio;  // distance between camera center and the surface
+      float R = tnear_mm + travelled_length_mm -c_StepSize_mm * offset_ratio;  // distance between camera center and the surface
+      
       float3 intensity_grad = normalize( make_float3(
         tex3D(d_texture_in, cur.x+finite_diff, cur.y, cur.z)-tex3D(d_texture_in, cur.x-finite_diff, cur.y, cur.z), 
         tex3D(d_texture_in, cur.x, cur.y+finite_diff, cur.z)-tex3D(d_texture_in, cur.x, cur.y-finite_diff, cur.z),
@@ -573,16 +591,104 @@ __global__ void RayCastingProjection(float* d_projection)
         float dot_prod = dot(ray.d, intensity_grad);
         if(dot_prod<0) dot_prod = dot(ray.d, -intensity_grad);
         if(isnan(dot_prod)) dot_prod = 0.0f;
-        if(c_RayCastingDistanceFalloffCoefficient>0)
-          d_projection[z*c_ImageWidth_i*c_ImageHeight_i+y*c_ImageWidth_i+x] = fminf( c_RayCastingDistanceFalloffCoefficient * dot_prod / (M_PI * R * R), 1.0f);
+        if (c_RayCastingDistanceFalloffCoefficient > 0)
+          d_projection[z * c_ImageWidth_i * c_ImageHeight_i + y * c_ImageWidth_i + x] = fminf(c_RayCastingDistanceFalloffCoefficient * dot_prod / (M_PI * R * R), 1.0f);
         else
-          d_projection[z*c_ImageWidth_i*c_ImageHeight_i+y*c_ImageWidth_i+x] = dot_prod;
+          d_projection[z * c_ImageWidth_i * c_ImageHeight_i + y * c_ImageWidth_i + x] = dot_prod;
       }
       break;
     }
     prev_val = cur_val;
   }
 }
+
+#define MAX_DEPTHMAP_LOD  20  // if this number is set to a huge number, it crashes GPU seriously. Thus we need a maximum limit.
+#define BACKFACE_DEPTHMAP_ORIGIN  5000  // The distance from the ray origin, from where the back-face ray is originated.
+
+__global__ void DepthMapProjection(float* d_projection)
+{
+  // ray casting forward projection
+  unsigned int x, y, z;
+#if defined(RegTools_ENABLE_CUDA20_CAPABILITY_FEATURES)
+  x = blockIdx.x * blockDim.x + threadIdx.x;  // locality-oriented
+  y = blockIdx.y * blockDim.y + threadIdx.y;
+  z = blockIdx.z * blockDim.z + threadIdx.z;
+  if (x >= c_ImageWidth_i || y >= c_ImageHeight_i || z >= c_ProjectionBlockSize_i) return; // this doesn't create divergent branches if number of pixels is multiple of warpSize
+#else
+  if (!getPixelIndex(x, y, z)) return;                                               // this doesn't create divergent branches if number of pixels is multiple of warpSize
+#endif
+
+  Ray ray = computeNormalizedRay(((float)x) + 0.5f, ((float)y) + 0.5f, z);
+  ray.d = -ray.d;
+
+  if(c_DepthMapBack){
+    ray.o = ray.o + BACKFACE_DEPTHMAP_ORIGIN*ray.d;
+    ray.d = -ray.d;
+  }
+    
+  float tnear_mm, tfar_mm;
+  if (!intersectBoxRay(-c_VolumeCorner_mm, c_VolumeCorner_mm, ray, tnear_mm, tfar_mm)) return;
+  if (tnear_mm < 0) {
+    if (tfar_mm < 0) {  // the ray goes backward
+      d_projection[z * c_ImageWidth_i * c_ImageHeight_i + y * c_ImageWidth_i + x] = 0; return;
+    }
+    else {        // the ray starts from inside the volume 
+      tnear_mm = 0;
+    }
+  }
+
+  // find the first voxel that hits to the ray
+  float3 cur = (ray.o + tnear_mm * ray.d + c_VolumeCorner_mm) / c_VoxelSize_mm; // object coordinate (mm) -> texture (voxel) coordinate
+  float3 delta_dir = c_StepSize_mm * ray.d / c_VoxelSize_mm;                    // object coordinate (mm) -> texture (voxel) coordinate
+
+  float cur_val = 0.0f, prev_val = 0.0f, alpha = 1.0f, finite_diff = 0.5f;
+  for (float travelled_length_mm = 0; travelled_length_mm < (tfar_mm - tnear_mm); travelled_length_mm += c_StepSize_mm, cur += delta_dir) {
+    if ((cur_val = tex3D(d_texture_in, cur.x, cur.y, cur.z)) > c_RayCastingThreshold) {
+      float3 half_step = delta_dir;
+      for (int count = 0; count < c_RayCastingLOD && count < MAX_RAYCASTING_LOD; count++) {
+        half_step /= 2;
+        cur -= half_step;
+        float temp = cur_val;
+        if ((cur_val = tex3D(d_texture_in, cur.x, cur.y, cur.z)) < c_RayCastingThreshold) {
+          prev_val = cur_val;
+          cur_val = temp;
+          cur += half_step;
+        }
+      }
+      float offset_ratio = (cur_val - c_RayCastingThreshold) / (cur_val - prev_val);// find the threshold surface by linear interpolation between previous and current intensty
+      cur = cur - half_step * offset_ratio;                                   // surface point
+      float R = tnear_mm + travelled_length_mm - c_StepSize_mm * offset_ratio;  // distance between camera center and the surface
+      if (c_DepthMapBack) {
+        d_projection[z * c_ImageWidth_i * c_ImageHeight_i + y * c_ImageWidth_i + x] = BACKFACE_DEPTHMAP_ORIGIN - (tnear_mm + travelled_length_mm);
+      } else {
+        d_projection[z * c_ImageWidth_i * c_ImageHeight_i + y * c_ImageWidth_i + x] = tnear_mm + travelled_length_mm;
+      }
+
+      break;
+      /*
+      float3 intensity_grad = normalize(make_float3(
+        tex3D(d_texture_in, cur.x + finite_diff, cur.y, cur.z) - tex3D(d_texture_in, cur.x - finite_diff, cur.y, cur.z),
+        tex3D(d_texture_in, cur.x, cur.y + finite_diff, cur.z) - tex3D(d_texture_in, cur.x, cur.y - finite_diff, cur.z),
+        tex3D(d_texture_in, cur.x, cur.y, cur.z + finite_diff) - tex3D(d_texture_in, cur.x, cur.y, cur.z - finite_diff)));
+      if (travelled_length_mm == 0) {
+        d_projection[z * c_ImageWidth_i * c_ImageHeight_i + y * c_ImageWidth_i + x] = 1.0;
+      }
+      else if (travelled_length_mm > 0) {
+        float dot_prod = dot(ray.d, intensity_grad);
+        if (dot_prod < 0) dot_prod = dot(ray.d, -intensity_grad);
+        if (isnan(dot_prod)) dot_prod = 0.0f;
+        if (c_RayCastingDistanceFalloffCoefficient > 0)
+          d_projection[z * c_ImageWidth_i * c_ImageHeight_i + y * c_ImageWidth_i + x] = fminf(c_RayCastingDistanceFalloffCoefficient * dot_prod / (M_PI * R * R), 1.0f);
+        else
+          d_projection[z * c_ImageWidth_i * c_ImageHeight_i + y * c_ImageWidth_i + x] = dot_prod;
+      }
+      break;
+      */
+    }
+    prev_val = cur_val;
+  }
+}
+
 
 #define MAX_NUM_PROJECTION_SETS 1
 __global__ void SiddonProjection(float* d_projection, size_t pitch, int *d_random_sequence)

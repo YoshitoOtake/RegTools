@@ -2,7 +2,7 @@
 #define _SIMILARITY_MEASURES_CUH_
 
 #include <cuda.h>
-#include <cublas_v2.h>
+#include <cublas.h>
 #include <vector_types.h>
 #include <iostream>
 #include <fstream>

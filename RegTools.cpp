@@ -57,6 +57,7 @@ RegTools::RegTools(void)
   m_RayCastingDistanceFalloffCoefficient = -1;
   m_CountNonIntersectedPixel = false;
   m_DifferentVolumePerProjectionSet = false;
+  m_DepthMapBack = false;
 
   m_PBO_rendering_start_index = 0;
 }
@@ -2099,6 +2100,7 @@ void RegTools::PrepareForRegToolsThread(RegToolsThreadParam *param)
   param->m_RayCastingLOD = m_RayCastingLOD;
   param->m_CountNonIntersectedPixel = m_CountNonIntersectedPixel;
   param->m_DifferentVolumePerProjectionSet = m_DifferentVolumePerProjectionSet;
+  param->m_DepthMapBack = m_DepthMapBack;
 
   param->m_MemoryStoreMode = MemoryStoreMode_Replace;   // 'replace' mode, memory is going to be newly allocated
   param->m_ProjectionsInit = NULL;

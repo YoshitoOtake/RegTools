@@ -24,6 +24,10 @@ classdef RegTools < handle
         ProjectorMode_Siddon = 1;
         ProjectorMode_RayCasting = 5;
         ProjectorMode_LinearInterpolationDeformable = 6;
+        ProjectorMode_DepthMap = 7;
+
+        DepthMapFront = 0;
+        DepthMapBack = 1;
 
         MemoryStoreMode_Replace = 0;
         MemoryStoreMode_Additive = 1;
@@ -297,6 +301,10 @@ classdef RegTools < handle
   
         function SetDifferentVolumePerProjectionSet(obj, different_volume_per_projection_set )
             calllib(obj.library, 'SetDifferentVolumePerProjectionSet', obj.instance, different_volume_per_projection_set);
+        end
+  
+        function SetDepthMapBack(obj, depth_map_back )
+            calllib(obj.library, 'SetDepthMapBack', obj.instance, depth_map_back);
         end
 
         function different_volume_per_projection_set = GetDifferentVolumePerProjectionSet(obj)

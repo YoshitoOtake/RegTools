@@ -33,6 +33,7 @@ extern "C" void copyRayCastingThreshold(float thresh);
 extern "C" void copyRayCastingDistanceFalloffCoefficient(float coefficient);
 extern "C" void copyCountNonIntersectedPixel(bool count_non_intersected_pixel);
 extern "C" void copyDifferentVolumePerProjectionSet(bool different_volume_per_projection_set);
+extern "C" void copyDepthMapBack(bool depth_map_back);
 extern "C" void cudaMallocForTexture(struct cudaArray **d_projArray, cudaExtent extent);
 
 extern "C" void bindCUDATexture(struct cudaArray *d_inputDataArray);
@@ -57,6 +58,7 @@ extern "C" void generateCMAESPopulation(float *d_arz, float *d_arx, float *d_arx
 extern "C" void launch_LinearInterpolationProjector(float *d_projection_local, int *d_ZeroPixelCount, int number_of_projections_in_one_set, dim3 grid, dim3 block);
 extern "C" void launch_LinearInterpolationDeformableProjector(float *d_projection_local, int *d_ZeroPixelCount, int number_of_projections_in_one_set, dim3 grid, dim3 block);
 extern "C" void launch_RayCastingProjector(float *d_projection_local, dim3 grid, dim3 block);
+extern "C" void launch_DepthMapProjector(float* d_projection_local, dim3 grid, dim3 block);
 extern "C" void launch_SiddonProjector(float *d_projection_local, size_t pitch, dim3 grid, dim3 block, int *d_random_sequence);
 extern "C" void launch_Interpolator(float* d_data_out, const float transform[6], 
                                     const int type, const int order, const float bicubic_a, const float back_ground, float *volume_center);
@@ -74,6 +76,7 @@ __global__ void LinearInterpolationProjection(float* d_projection, int* d_ZeroPi
 __global__ void LinearInterpolationDeformableProjection(float* d_projection, int* d_ZeroPixelCount, int number_of_projections_in_one_set);
 __global__ void SiddonProjection(float* d_projection, size_t pitch, int *d_random_gridID = NULL);
 __global__ void RayCastingProjection(float* d_projection);
+__global__ void DepthMapProjection(float* d_projection);
 __global__ void LocalContrastNormalization(float* d_projection, int number_of_projections_in_one_set);
 
 // intersect ray with a box
