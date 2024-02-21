@@ -25,6 +25,7 @@ classdef RegTools < handle
         ProjectorMode_RayCasting = 5;
         ProjectorMode_LinearInterpolationDeformable = 6;
         ProjectorMode_DepthMap = 7;
+        ProjectorMode_RayCastingIntensityGrad = 8;
 
         DepthMapFront = 0;
         DepthMapBack = 1;
@@ -305,6 +306,10 @@ classdef RegTools < handle
   
         function SetDepthMapBack(obj, depth_map_back )
             calllib(obj.library, 'SetDepthMapBack', obj.instance, depth_map_back);
+        end
+  
+        function SetRayCastingIntensityGradDim(obj, dim )
+            calllib(obj.library, 'SetRayCastingIntensityGradDim', obj.instance, dim);
         end
 
         function different_volume_per_projection_set = GetDifferentVolumePerProjectionSet(obj)

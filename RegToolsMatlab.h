@@ -90,6 +90,8 @@ EXPORT int SetDifferentVolumePerProjectionSet(struct RegToolsInstance instance, 
 EXPORT int GetDifferentVolumePerProjectionSet(struct RegToolsInstance instance, int *different_volume_per_projection_set);
 EXPORT int SetDepthMapBack(struct RegToolsInstance instance, int depth_map_back);
 EXPORT int GetDepthMapBack(struct RegToolsInstance instance, int* depth_map_back);
+EXPORT int SetRayCastingIntensityGradDim(struct RegToolsInstance instance, int dim);
+EXPORT int GetRayCastingIntensityGradDim(struct RegToolsInstance instance, int* dim);
 
 EXPORT int GetNumberOfProjections(struct RegToolsInstance instance);
 EXPORT int GetNumberOfEnabledProjections(struct RegToolsInstance instance);

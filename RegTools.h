@@ -90,7 +90,7 @@ enum {  InterpolatorType_Bilinear = 0,
         InterpolatorType_NearestNeighbor = 5,
       };  // interpolator type
 
-enum { ProjectorMode_LinearInterpolation = 0, ProjectorMode_Siddon = 1, ProjectorMode_RayCasting = 5, ProjectorMode_LinearInterpolationDeformable = 6, ProjectorMode_DepthMap = 7}; // Projector mode
+enum { ProjectorMode_LinearInterpolation = 0, ProjectorMode_Siddon = 1, ProjectorMode_RayCasting = 5, ProjectorMode_LinearInterpolationDeformable = 6, ProjectorMode_DepthMap = 7, ProjectorMode_RayCastingIntensityGrad = 8}; // Projector mode
 enum {  SIMILARITY_MEASURE_MI = 1, SIMILARITY_MEASURE_NMI = 2, SIMILARITY_MEASURE_GI = 3, SIMILARITY_MEASURE_GI_SINGLE = 4, 
         SIMILARITY_MEASURE_GC = 5, SIMILARITY_MEASURE_NCC = 6, SIMILARITY_MEASURE_MSE = 7, SIMILARITY_MEASURE_LogLikelihood = 8, 
         SIMILARITY_MEASURE_GI_SINGLE_ALWAYS_FLOATING_NORM = 9, SIMILARITY_MEASURE_SSIM = 10, SIMILARITY_MEASURE_GI_STD_NORM = 11 };
@@ -135,6 +135,7 @@ struct RegToolsThreadParam {
   int *m_ZeroPixelCount;
   bool m_DifferentVolumePerProjectionSet;
   bool m_DepthMapBack;
+  int m_RayCastingIntensityGradDim;
 
   // for maximum and minimum value to return
   float *m_MinValue, *m_MaxValue;
@@ -263,6 +264,8 @@ public:
   int GetDifferentVolumePerProjectionSet(int *different_volume_per_projection_set){ *different_volume_per_projection_set = m_DifferentVolumePerProjectionSet; return 1; }
   int SetDepthMapBack(int depth_map_back) { m_DepthMapBack = depth_map_back; return 1; }
   int GetDepthMapBack(int* depth_map_back) { *depth_map_back = m_DepthMapBack; return 1; }
+  int SetRayCastingIntensityGradDim(int dim) { m_RayCastingIntensityGradDim = dim; return 1; }
+  int GetRayCastingIntensityGradDim(int* dim) { *dim = m_RayCastingIntensityGradDim; return 1; }
 
   bool SetStepSize(float step_size);
   bool GetStepSize(float *step_size);
@@ -411,6 +414,7 @@ protected:
   bool m_CountNonIntersectedPixel;
   bool m_DifferentVolumePerProjectionSet;
   bool m_DepthMapBack;
+  int m_RayCastingIntensityGradDim;
 
   // for PBO rendering
   int m_PBO_rendering_start_index;

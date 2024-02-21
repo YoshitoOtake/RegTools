@@ -325,6 +325,16 @@ int GetDepthMapBack(struct RegToolsInstance instance, int* depth_map_back)
   return reinterpret_cast<RegTools*>(instance.InstancePtr)->GetDepthMapBack(depth_map_back);
 }
 
+int SetRayCastingIntensityGradDim(struct RegToolsInstance instance, int dim)
+{
+  return reinterpret_cast<RegTools*>(instance.InstancePtr)->SetRayCastingIntensityGradDim(dim);
+}
+
+int GetRayCastingIntensityGradDim(struct RegToolsInstance instance, int* dim)
+{
+  return reinterpret_cast<RegTools*>(instance.InstancePtr)->GetRayCastingIntensityGradDim(dim);
+}
+
 int SetProjectionDim(struct RegToolsInstance instance, int width, int height)
 {
   return reinterpret_cast<RegTools*>(instance.InstancePtr)->SetProjectionDim(width, height);
